@@ -10,6 +10,7 @@
 use crate::config::DesktopConfig;
 use serde_json::Value;
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -178,6 +179,7 @@ pub fn run_command(command: &str, cwd: &Path, timeout_secs: u64) -> Result<Strin
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0) // own group, so a timeout can kill the command's children too
         .spawn()
         .map_err(|e| format!("couldn't start shell: {e}"))?;
     // Drain pipes on threads so a chatty command can't block on a full pipe.
@@ -198,6 +200,8 @@ pub fn run_command(command: &str, cwd: &Path, timeout_secs: u64) -> Result<Strin
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(st) => break Some(st),
             None if Instant::now() >= deadline => {
+                // Some shells (dash) don't exec a lone command; killing only the shell would leave it holding the pipes open.
+                let _ = Command::new("kill").args(["-KILL", "--", &format!("-{}", child.id())]).status();
                 let _ = child.kill();
                 let _ = child.wait();
                 break None;
