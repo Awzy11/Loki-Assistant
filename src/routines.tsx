@@ -30,7 +30,7 @@ export default function RoutineBar({ tab }: { tab: string }) {
   const start = (r: RoutineDef, arg = "") => {
     if (r.run === "workflow") {
       setNote((n) => ({ ...n, [r.id]: "Starting…" }));
-      runWorkflow(r.id).then(() => setNote((n) => ({ ...n, [r.id]: "Started. It runs in the background; check the note when it finishes." }))).catch((e) => setNote((n) => ({ ...n, [r.id]: String(e.message || e) })));
+      runWorkflow(r.id, false, arg).then(() => setNote((n) => ({ ...n, [r.id]: "Started. It runs in the background; check the note when it finishes." }))).catch((e) => setNote((n) => ({ ...n, [r.id]: String(e.message || e) })));
     } else {
       run(`/${r.id}${arg ? ` ${arg}` : ""}`);
     }
@@ -49,7 +49,10 @@ export default function RoutineBar({ tab }: { tab: string }) {
               <button type="button" className="loki-chipbtn" onClick={() => setOpen(null)}>Cancel</button>
             </span>
           ) : (
-            <button key={r.id} type="button" className="loki-chipbtn rt-btn" title={r.hint} onClick={() => setOpen(r.id)}>▶ {r.label} <em>{tag(r)}</em></button>
+            <span key={r.id} className="rt-one">
+              <button type="button" className="loki-chipbtn rt-btn" title={r.hint} onClick={() => setOpen(r.id)}>▶ {r.label} <em>{tag(r)}</em></button>
+              {note[r.id] && <small className="db-dim"> {note[r.id]}</small>}
+            </span>
           )
         ) : (
           <span key={r.id} className="rt-one">

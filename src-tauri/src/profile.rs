@@ -998,6 +998,8 @@ mod tests {
         assert!(Profile::default().routines.is_empty() && Profile::default().routine_todos("day").is_empty());
         let base = "[[routines]]\nid = \"x\"\nlabel = \"X\"\n";
         assert!(Profile::from_toml(base).is_ok());
+        let wf_url = Profile::from_toml("[[routines]]\nid = \"save-video\"\nlabel = \"Save a video\"\nrun = \"workflow\"\ninput = \"url\"\nask = \"Paste a link\"\n").unwrap();
+        assert!(wf_url.is_runnable_workflow("save-video") && wf_url.routines[0].input == "url", "a workflow can ask for a link");
         for bad in [
             "[[routines]]\nid = \"Bad Id\"\nlabel = \"X\"\n".to_string(),
             format!("{base}[[routines]]\nid = \"x\"\nlabel = \"Y\"\n"),

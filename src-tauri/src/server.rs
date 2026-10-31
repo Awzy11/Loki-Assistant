@@ -318,6 +318,7 @@ pub fn router(core: Arc<Core>, static_dir: Option<PathBuf>) -> Router {
         .route("/api/v1/news/render", post(v1_news_render))
         .route("/api/v1/ai/fabric", post(v1_ai_fabric))
         .route("/api/v1/workflows/run", post(v1_workflow_run))
+        .route("/api/v1/tools/call", post(v1_tools_call))
         .route("/api/v1/routines", get(v1_routines))
         .route("/api/v1/leads/{*rest}", axum::routing::any(v1_leads_proxy))
         .route("/api/v1/tasks/mark", post(v1_tasks_mark))
@@ -951,6 +952,22 @@ struct WorkflowRun {
     slug: String,
     #[serde(default)]
     force: bool,
+    /// What the routine asks for (a link), when its `input` is `url`.
+    #[serde(default)]
+    input: String,
+}
+
+#[derive(Deserialize)]
+struct ToolCall {
+    tool: String,
+    #[serde(default)]
+    args: serde_json::Value,
+}
+
+/// `POST /api/v1/tools/call` — lets an n8n workflow call one of a few read-only MCP tools (a video's transcript) through Loki's own
+/// connections, instead of speaking MCP itself.
+async fn v1_tools_call(State(core): State<Arc<Core>>, Json(req): Json<ToolCall>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    core.call_workflow_tool(&req.tool, &req.args).await.map(|text| Json(serde_json::json!({ "ok": true, "text": text }))).map_err(|e| (StatusCode::BAD_REQUEST, e))
 }
 
 /// `POST /api/v1/workflows/run` — the Run button on the Workflows page. Only the listed workflows can be started, through
@@ -959,13 +976,21 @@ async fn v1_workflow_run(Json(req): Json<WorkflowRun>) -> Result<Json<serde_json
     if !crate::profile::get().is_runnable_workflow(&req.slug) {
         return Err((StatusCode::NOT_FOUND, format!("no runnable workflow called {}", req.slug)));
     }
+    let wants_url = crate::profile::get().routines.iter().any(|r| r.id == req.slug && r.input == "url");
+    let input = req.input.trim().to_string();
+    if wants_url && !(input.len() <= 500 && (input.starts_with("https://") || input.starts_with("http://")) && !input.chars().any(|c| c.is_control() || c.is_whitespace())) {
+        return Err((StatusCode::BAD_REQUEST, "this routine needs a link that starts with https://".to_string()));
+    }
+    if !wants_url && !input.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "this routine does not take an input".to_string()));
+    }
     let key_path = std::env::var("HOME").map(|h| format!("{h}/.config/loki/n8n_run_key")).unwrap_or_default();
     let key = std::fs::read_to_string(&key_path).map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "the n8n run key is not set up on this host".to_string()))?;
     let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let res = client
         .post(format!("http://127.0.0.1:5678/webhook/run-{}", req.slug))
         .header("X-Run-Key", key.trim())
-        .json(&serde_json::json!({ "force": req.force }))
+        .json(&serde_json::json!({ "force": req.force, "input": input }))
         .send()
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("n8n did not answer: {e}")))?;

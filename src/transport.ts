@@ -1062,8 +1062,8 @@ export const notesApply = async (proposals: NoteProposal[]): Promise<string[]> =
   (await (await authed("/api/v1/notes/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proposals }) })).json()).results;
 
 /** Starts a runnable n8n workflow (News digest, Leads scan, Market watch). `force` re-runs even if today's note exists. */
-export const runWorkflow = async (slug: string, force = false): Promise<void> => {
-  const res = await authed("/api/v1/workflows/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug, force }) });
+export const runWorkflow = async (slug: string, force = false, input = ""): Promise<void> => {
+  const res = await authed("/api/v1/workflows/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug, force, input }) });
   if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
 };
 

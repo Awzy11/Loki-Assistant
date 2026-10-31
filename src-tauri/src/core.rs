@@ -727,6 +727,44 @@ impl Core {
         &self.remote_hosts
     }
 
+    /// A read-only MCP tool for an n8n workflow (see `/api/v1/tools/call`). Only the tools on this list can be called this way.
+    pub async fn call_workflow_tool(&self, name: &str, args: &serde_json::Value) -> Result<String, String> {
+        const ALLOWED: &[&str] = &["mcp__youtube-transcript__get_transcript", "mcp__youtube-transcript__get_video_info", "mcp__youtube-transcript__get_timed_transcript"];
+        if !ALLOWED.contains(&name) {
+            return Err(format!("'{name}' is not available to workflows"));
+        }
+        let call = |a: serde_json::Value| async move {
+            tokio::time::timeout(std::time::Duration::from_secs(90), self.mcp.call(name, &a))
+                .await
+                .map_err(|_| "the tool took longer than 90 seconds".to_string())?
+                .map(|t| crate::needs_you::unwrap_result(&t))
+                .map_err(|e| e.to_string())
+        };
+        if name != "mcp__youtube-transcript__get_transcript" {
+            return call(args.clone()).await;
+        }
+        // A long video's transcript comes in pages; collect them (up to 8) into one answer.
+        let (mut title, mut text, mut cursor, mut truncated) = (String::new(), String::new(), None::<String>, false);
+        for page in 0..8 {
+            let mut a = args.clone();
+            if let (Some(c), Some(o)) = (&cursor, a.as_object_mut()) {
+                o.insert("next_cursor".into(), serde_json::Value::String(c.clone()));
+            }
+            let v: serde_json::Value = serde_json::from_str(&call(a).await?).map_err(|e| format!("unexpected transcript reply: {e}"))?;
+            if title.is_empty() {
+                title = v["title"].as_str().unwrap_or("").to_string();
+            }
+            text.push_str(v["transcript"].as_str().unwrap_or(""));
+            text.push('\n');
+            cursor = v["next_cursor"].as_str().filter(|c| !c.is_empty()).map(String::from);
+            if cursor.is_none() {
+                break;
+            }
+            truncated = page == 7;
+        }
+        Ok(serde_json::json!({ "title": title, "transcript": text.trim(), "truncated": truncated }).to_string())
+    }
+
     pub fn mcp_status(&self) -> Vec<crate::mcp_hub::ServerStatus> {
         self.mcp.status()
     }
