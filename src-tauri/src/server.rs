@@ -358,6 +358,8 @@ pub fn router(core: Arc<Core>, static_dir: Option<PathBuf>) -> Router {
         .route("/api/v1/mcp/servers", get(v1_mcp_servers))
         .route("/api/v1/mcp/servers/{name}/tools", get(v1_mcp_tools))
         .route("/api/v1/mcp/action", post(v1_mcp_action))
+        .route("/api/v1/version", get(|| async { Json(crate::version::info()) }))
+        .route("/api/v1/version/check", post(v1_version_check))
         .route("/api/v1/engines", get(engines_list).post(engines_set))
         .route("/api/v1/permissions/rules", get(rules_list).post(rules_add))
         .route("/api/v1/permissions/rules/remove", post(rules_remove))
@@ -1674,6 +1676,11 @@ async fn v1_mcp_status(State(core): State<Arc<Core>>) -> Json<serde_json::Value>
 struct EnginesQuery {
     #[serde(default)]
     session_id: Option<String>,
+}
+
+/// `POST /api/v1/version/check` — asks the public repository for its latest release. Only runs when the person presses the button.
+async fn v1_version_check() -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    crate::version::check().await.map(Json).map_err(|e| (StatusCode::BAD_GATEWAY, e))
 }
 
 /// `GET /api/v1/engines[?session_id=…]` — selectable engines, the server default, and this

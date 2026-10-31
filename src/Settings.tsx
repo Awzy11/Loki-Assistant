@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import McpSettings from "./McpSettings";
 import {
+  checkForUpdate,
+  getVersion,
+  type UpdateCheck,
   getClaudeConfig,
   getLlmConfig,
   getStoredApiToken,
@@ -401,6 +404,42 @@ function TrustedFoldersSettings() {
   );
 }
 
+/** Shows the running version; the update check contacts the public repository only when pressed. */
+function VersionSettings() {
+  const [v, setV] = useState<{ version: string; install: string } | null>(null);
+  const [res, setRes] = useState<UpdateCheck | null>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    getVersion().then(setV).catch(() => {});
+  }, []);
+  async function check() {
+    setBusy(true);
+    setErr("");
+    try {
+      setRes(await checkForUpdate());
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    }
+    setBusy(false);
+  }
+  return (
+    <div className="loki-settings-section">
+      <h2>Version</h2>
+      <p className="loki-settings-note">
+        Loki {v ? v.version : "…"}{v ? ` (${v.install})` : ""}. Checking for updates contacts GitHub once, when you press the button, and sends nothing about you.
+      </p>
+      <button type="button" onClick={() => void check()} disabled={busy}>Check for updates</button>
+      {res && (
+        <div className="loki-settings-status">
+          {res.newer ? `${res.latest} is available. ` : ""}{res.message}{res.newer && res.url ? <> <a href={res.url} target="_blank" rel="noreferrer">Release notes</a></> : null}
+        </div>
+      )}
+      {err && <div className="loki-settings-status">{err}</div>}
+    </div>
+  );
+}
+
 export default function Settings() {
   return (
     <div className="loki-settings">
@@ -409,6 +448,7 @@ export default function Settings() {
         is optional: it lets Loki use your own Claude Code subscription, and it stays off unless you add a [claude] section.
         Your chat and embedding models are set in the sections below.
       </p>
+      <VersionSettings />
       <ApiTokenSettings />
       <NotificationSettings />
       <InAppAlertSettings />

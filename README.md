@@ -20,7 +20,17 @@ Loki is early software (v0.1). It is in daily use by its author, but expect roug
 - **[Obsidian](https://obsidian.md)** with the *Local REST API* community plugin enabled (Loki reads and writes the vault through it).
 - **Rust** (`rustup`) and **Node 20 or newer** to build. On Linux the desktop app also needs Tauri's usual system libraries; the web app does not.
 
-## Quick start
+## Install
+
+Pick one. Each ends the same way: open <http://localhost:8420> (the source build below uses 8420 too) and finish setup in the browser. Platform notes are in [docs/INSTALL.md](docs/INSTALL.md).
+
+- **Docker** (Linux, macOS, Windows): `docker compose up -d` using the [compose.yaml](compose.yaml) in this repository. Nothing to compile.
+- **Download** (Linux x86_64 and Raspberry Pi, macOS Apple silicon and Intel): unpack the archive from the [Releases](https://github.com/Awzy11/Loki-Assistant/releases) page and run `./loki.sh`.
+- **From source**: below.
+
+Something not working? See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+
+## Build from source
 
 ```bash
 git clone https://github.com/Awzy11/Loki-Assistant.git
@@ -38,7 +48,7 @@ Open <http://127.0.0.1:8420> in a browser on that machine. The first time, Loki 
 4. **About you.** Optional: your name, a line about you and your location.
 5. **Login.** The username and password you will use on each device.
 
-When you press *Finish*, Loki saves your settings, restarts itself and signs you in. Until setup is finished the server only answers this machine; to set up a server you reach over the network, open an SSH tunnel to it (`ssh -L 8420:127.0.0.1:8420 yourserver`) and use <http://127.0.0.1:8420>.
+When you press *Finish*, Loki saves your settings, switches to normal mode and signs you in. Until setup is finished the server only answers this machine; to set up a server you reach over the network, open an SSH tunnel to it (`ssh -L 8420:127.0.0.1:8420 yourserver`) and use <http://127.0.0.1:8420>.
 
 By default the server listens on `127.0.0.1` only. To reach it from your phone, put it on a private network such as [Tailscale](https://tailscale.com) and set `LOKI_BIND` to that address (or `0.0.0.0` on a trusted network). Do not expose it to the open internet.
 
@@ -65,6 +75,8 @@ Everything in the profile (folders, note headings, daily properties, who you are
 
 | | |
 | --- | --- |
+| [docs/INSTALL.md](docs/INSTALL.md) | Install on Linux, Raspberry Pi, macOS and Windows |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Ollama or Obsidian not reachable, ports, passwords |
 | [docs/PROFILE.md](docs/PROFILE.md) | The profile: folders, headings, properties, routines, placeholders |
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | How the web, desktop, phone and CLI screens talk to the server |
 | [docs/MAIL.md](docs/MAIL.md) | Optional local Gmail triage |

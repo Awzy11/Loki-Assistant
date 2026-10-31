@@ -1,4 +1,5 @@
 pub mod paths;
+pub mod version;
 pub mod agent;
 pub mod agent_limits;
 pub mod auth;

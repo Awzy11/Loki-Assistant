@@ -1077,3 +1077,18 @@ export const setNewsletterSender = async (address: string, name: string, bucket:
 /** One entry of the routine registry in the profile (what a tab's buttons run). */
 export type RoutineDef = { id: string; label: string; hint: string; period: string; tabs: string[]; run: "" | "chat" | "workflow"; input: "" | "url"; ask: string; todo: string };
 export const getRoutines = async (): Promise<RoutineDef[]> => (await (await authed("/api/v1/routines")).json()).routines;
+
+export type UpdateCheck = { current: string; latest: string | null; newer: boolean; url?: string; install?: string; message: string };
+
+export async function getVersion(): Promise<{ version: string; install: string }> {
+  const res = await fetch("/api/v1/version", { headers: authHeaderIfPresent() });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/** Contacts the public repository's releases. Only called from the "Check for updates" button. */
+export async function checkForUpdate(): Promise<UpdateCheck> {
+  const res = await fetch("/api/v1/version/check", { method: "POST", headers: authHeaderIfPresent() });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
