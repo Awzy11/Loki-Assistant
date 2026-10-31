@@ -145,7 +145,7 @@ export default function Onboarding({ state }: { state: SetupState }) {
     return (
       <div className="ob-wrap"><div className="ob-card ob-center">
         <h1>Setting things up…</h1>
-        <p className="ob-sub">Saving your settings and restarting Loki. This takes a few seconds.</p>
+        <p className="ob-sub">Saving your settings and starting Loki. This takes a few seconds.</p>
         {error && <div className="ob-warn" role="alert">{error}</div>}
       </div></div>
     );

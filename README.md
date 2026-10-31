@@ -2,7 +2,7 @@
 
 A personal AI agent you run yourself. It works with your Obsidian vault, your tools and the models you choose, and everything stays on your own machines: no accounts, no telemetry, nothing hosted for you.
 
-Loki is early software (v0.1). It is in daily use by its author, but expect rough edges, and read [Security](SECURITY.md) before you put it on a network.
+Loki is early software (v0.2). It is in daily use by its author, but expect rough edges, and read [Security](SECURITY.md) before you put it on a network.
 
 ## What it does
 
@@ -19,6 +19,8 @@ Loki is early software (v0.1). It is in daily use by its author, but expect roug
 - **[Ollama](https://ollama.com)** with a chat model (for example `ollama pull llama3.1:8b`).
 - **[Obsidian](https://obsidian.md)** with the *Local REST API* community plugin enabled (Loki reads and writes the vault through it).
 - **Rust** (`rustup`) and **Node 20 or newer** to build. On Linux the desktop app also needs Tauri's usual system libraries; the web app does not.
+
+<p align="center"><img src="docs/img/home.png" alt="Loki's Home page after first-time setup" width="720"></p>
 
 ## Install
 
@@ -49,6 +51,12 @@ Open <http://127.0.0.1:8420> in a browser on that machine. The first time, Loki 
 5. **Login.** The username and password you will use on each device.
 
 When you press *Finish*, Loki saves your settings, switches to normal mode and signs you in. Until setup is finished the server only answers this machine; to set up a server you reach over the network, open an SSH tunnel to it (`ssh -L 8420:127.0.0.1:8420 yourserver`) and use <http://127.0.0.1:8420>.
+
+<p>
+<img src="docs/img/setup-models.png" alt="Setup: choosing a local model" width="32%">
+<img src="docs/img/setup-notes.png" alt="Setup: connecting Obsidian" width="32%">
+<img src="docs/img/setup-layout.png" alt="Setup: choosing a vault layout" width="32%">
+</p>
 
 By default the server listens on `127.0.0.1` only. To reach it from your phone, put it on a private network such as [Tailscale](https://tailscale.com) and set `LOKI_BIND` to that address (or `0.0.0.0` on a trusted network). Do not expose it to the open internet.
 

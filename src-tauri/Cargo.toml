@@ -1,6 +1,6 @@
 [package]
 name = "loki"
-version = "0.1.0"
+version = "0.2.0"
 description = "Loki — a non-technical-user-friendly agent harness, local-first via Ollama"
 authors = ["Awzy11"]
 license = "Apache-2.0"

@@ -89,7 +89,10 @@ jobs:
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" out/*.tar.gz out/SHA256SUMS --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        run: |
+          PRE=""
+          case "$GITHUB_REF_NAME" in *-*) PRE="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" out/*.tar.gz out/SHA256SUMS --title "$GITHUB_REF_NAME" --generate-notes --verify-tag $PRE
       - name: Unpack the Linux archives for the image
         run: |
           mkdir -p ctx/amd64 ctx/arm64
@@ -106,11 +109,15 @@ jobs:
       - name: Image name
         id: img
         run: echo "name=ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr 'A-Z' 'a-z')" >> "$GITHUB_OUTPUT"
+      - name: Image tags (a release candidate does not move "latest")
+        id: tags
+        run: |
+          T="${{ steps.img.outputs.name }}:${{ github.ref_name }}"
+          case "$GITHUB_REF_NAME" in *-*) ;; *) T="$T,${{ steps.img.outputs.name }}:latest" ;; esac
+          echo "tags=$T" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: ctx
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ steps.img.outputs.name }}:${{ github.ref_name }}
-            ${{ steps.img.outputs.name }}:latest
+          tags: ${{ steps.tags.outputs.tags }}
