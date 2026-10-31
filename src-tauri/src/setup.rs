@@ -387,11 +387,18 @@ async fn probe(Json(p): Json<Probe>) -> Json<Value> {
 
 // ---------- routes ----------
 
+/// True inside a container image (the Dockerfile sets this), where "this machine" for Ollama and Obsidian is the Docker host.
+fn in_container() -> bool {
+    std::env::var("LOKI_IN_CONTAINER").map(|v| v == "1").unwrap_or(false)
+}
+
 async fn state() -> Json<Value> {
+    let (ollama, obsidian) = if in_container() { ("host.docker.internal", "host.docker.internal") } else { ("localhost", "127.0.0.1") };
     Json(json!({
         "mode": "setup",
+        "container": in_container(),
         "packs": [{ "id": PACK_NAME, "label": "Zettelkasten + Personal Scrum", "routines": PACK_ROUTINES.len() }],
-        "defaults": { "ollama_host": "localhost", "ollama_port": 11434, "obsidian_host": "127.0.0.1", "obsidian_port": 27123 },
+        "defaults": { "ollama_host": ollama, "ollama_port": 11434, "obsidian_host": obsidian, "obsidian_port": 27123 },
     }))
 }
 

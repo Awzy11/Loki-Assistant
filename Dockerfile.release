@@ -1,0 +1,16 @@
+# Used by the release workflow: wraps the already-built Linux archives (amd64 and arm64) in the runtime image, so no compiling happens under emulation.
+FROM debian:bookworm-slim
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --home-dir /data --uid 10001 loki
+COPY ${TARGETARCH}/loki-server ${TARGETARCH}/loki-cli ${TARGETARCH}/loki-mcp ${TARGETARCH}/loki-bridge-mcp /usr/local/bin/
+COPY ${TARGETARCH}/dist /app/dist
+COPY ${TARGETARCH}/LICENSE ${TARGETARCH}/NOTICE /app/
+ENV HOME=/data LOKI_STATIC_DIR=/app/dist LOKI_BIND=0.0.0.0 LOKI_PORT=8420 LOKI_IN_CONTAINER=1 LOKI_SETUP_ALLOW_REMOTE=1
+USER loki
+WORKDIR /data
+VOLUME /data
+EXPOSE 8420
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fs http://127.0.0.1:8420/ -o /dev/null
+CMD ["loki-server"]

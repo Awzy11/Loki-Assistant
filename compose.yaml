@@ -1,0 +1,17 @@
+# Run Loki in Docker:  docker compose up -d   then open http://localhost:8420 to finish setup.
+# The port is published on this machine only. To reach Loki from other devices, put it behind your own HTTPS proxy or a VPN such as Tailscale;
+# don't change 127.0.0.1 to 0.0.0.0 while setup is unfinished (the setup screens accept connections from any address inside the container).
+services:
+  loki:
+    image: ghcr.io/awzy11/loki-assistant:latest
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8420:8420"
+    volumes:
+      - loki-data:/data
+    extra_hosts:
+      # Lets the container reach Ollama and Obsidian running on this machine as host.docker.internal (Docker Desktop does this itself).
+      - "host.docker.internal:host-gateway"
+volumes:
+  loki-data:
