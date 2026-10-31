@@ -1,0 +1,4 @@
+#!/bin/sh
+# Test stand-in for ssh: reports the host and the script it was given on stdin.
+for a; do last3="$prev2 $prev $a"; prev2="$prev"; prev="$a"; done
+echo "FAKE-SSH host:$last3 | script: $(cat | tr '\n' ';')"

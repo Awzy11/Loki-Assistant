@@ -1,0 +1,16 @@
+Loki
+Copyright 2026 Awzy11
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party software
+--------------------
+Loki is built from open-source Rust crates and npm packages, each under its own license. All of them are permissive (MIT, Apache-2.0, BSD,
+ISC, Zlib, Unicode, Unlicense and similar), with these notes:
+
+- cssparser, cssparser-macros, dtoa-short, option-ext and selectors are under the Mozilla Public License 2.0, a file-level license. Loki
+  uses them unmodified, as ordinary dependencies of the Tauri web view; their source is available from crates.io.
+- Some crates offer an LGPL-2.1-or-later option next to MIT or Apache-2.0 (r-efi). Loki uses them under the MIT or Apache-2.0 terms.
+- caniuse-lite (a build-time dependency of the front-end tooling, not shipped in the app) is under CC-BY-4.0.
+
+The full list comes from `cargo metadata` and package-lock.json; `cargo deny check licenses` (see src-tauri/deny.toml) enforces it.

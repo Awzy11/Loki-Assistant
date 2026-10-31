@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-capture",
+  "description": "Narrow allowlist \u2014 grants the Loki server origins IPC access ONLY to the app-defined commands capture_screenshot and device_call (each named explicitly below). No core:default or plugin permissions, so no built-in Tauri API is reachable. device_call is further limited by the local [desktop] config (shell off by default) and a fixed list of protected credential paths.",
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "http://localhost:8420/*",
+      "https://loki.example.org/*"
+    ]
+  },
+  "permissions": [
+    "allow-capture-screenshot",
+    "allow-device-call"
+  ]
+}

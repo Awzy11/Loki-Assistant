@@ -1,0 +1,94 @@
+# Copy this to ~/.config/loki/config.toml and fill in real values.
+# The real config.toml is gitignored — never commit it.
+
+# Chat model backend. vendor = "ollama" | "openai_compatible" | "anthropic".
+[llm]
+vendor = "ollama"
+host = "localhost"  # hostname or IP of the machine running Ollama
+port = 11434
+# A small model that fits a laptop GPU; use a larger one if you have the memory.
+model = "llama3.1:8b"
+
+# Cloud backends instead of the [llm] block above — pick one:
+#
+# [llm]
+# vendor = "openai_compatible"
+# base_url = "https://api.openai.com/v1"   # or any OpenAI-wire-compatible endpoint (vLLM, LM Studio, ...)
+# api_key = "sk-..."                        # omit to load from the encrypted secrets store instead (Settings UI)
+# model = "gpt-4o"
+#
+# [llm]
+# vendor = "anthropic"
+# api_key = "sk-ant-..."                    # a real Anthropic API key — NOT the same thing as [claude] below
+# model = "claude-sonnet-4-5"
+
+# Embedding backend — usually still Ollama even when [llm] is a cloud vendor, since Anthropic
+# has no embeddings API and a real embedding model (not a chat model) is what you want here.
+# Omit this whole section to reuse [llm] for embeddings too.
+# Backup chat models, tried in order when the models above fail (quota, 429, unreachable) —
+# e.g. Claude hits its limit, [llm] is down, Gemini answers instead. Repeat the table for more.
+# Cloud entries are skipped for turns kept local for privacy. api_key here is plaintext (the
+# Settings UI's encrypted store only covers [llm]/[embedding]).
+# [[fallbacks]]
+# vendor = "gemini"
+# api_key = "..."
+# model = "gemini-2.5-pro"
+
+[embedding]
+vendor = "ollama"
+host = "localhost"
+port = 11434
+model = "nomic-embed-text"
+
+[obsidian]
+host = "192.0.2.10"  # Pi 5 vault server, LAN IP (or Tailscale IP if remote)
+port = 27123
+api_key = "REPLACE_ME"
+
+# Optional — omit this whole section to use the defaults (claude on PATH, 120s timeout, no
+# Routine Mode). Both escalate_to_claude and Routine Mode run `claude -p` non-interactively,
+# authenticated with whatever `claude` login session already exists on this machine (the user's
+# own Pro/Max subscription) — no API key. This is NOT one of the [llm]/[embedding] BYOK
+# backends above and is never selectable there — see providers::LlmProvider's doc comment for
+# why they're kept structurally separate.
+# [claude]
+# binary_path = "claude"
+# timeout_secs = 120
+#
+# If loki-server runs as a systemd service, "claude" (bare name, PATH lookup) will likely
+# fail with "No such file or directory" even though `claude` works fine in your interactive
+# shell — systemd services don't inherit your shell's PATH (~/.local/bin isn't on it by
+# default). Set binary_path to the absolute path (`which claude` in your normal shell) to
+# sidestep this entirely rather than fighting the unit's Environment=PATH.
+# binary_path = "/home/you/.local/bin/claude"
+#
+# Required for Routine Mode (running /bod, /eod, etc. — see README "Routine Mode") — not
+# needed for plain escalate_to_claude, which is deliberately vault-context-free. Must point
+# at the directory containing the vault-aware CLAUDE.md project and ~/.claude/commands'
+# matching setup, on THIS machine (wherever loki-server runs — the desktop app is a thin
+# client with no [claude]/[llm]/[obsidian] config of its own at all, see [desktop] below) —
+# so command files, CLAUDE.md, and MCP config resolve exactly as they do in an interactive
+# `claude` session. Routine Mode errors clearly if this is unset rather than guessing.
+# routine_working_dir = "/home/you/Desktop"
+
+# --- Desktop app only (2026-08-30) ---
+# The Loki desktop app is a thin native shell — it runs no Core, no knowledge store, and needs
+# NONE of the [llm]/[embedding]/[obsidian]/[claude] config above. Its only setting is which
+# real loki-server instance to point its window at. On the SAME machine as loki-server, the
+# default (127.0.0.1:8420) just works — omit this section entirely. On a different machine
+# (a laptop, say), point it at that machine's Tailscale IP:port directly — NOT
+# https://loki.example.org/, since a webview is stricter than a browser about trusting a self-signed
+# cert (same reason this session's own Playwright testing used the Tailscale IP directly).
+# [desktop]
+# server_url = "http://100.64.0.10:8420"
+
+# Optional, inside [claude]: lets approvals and device tools reach the Loki UI during Claude turns.
+#   bridge_binary = "/home/you/Desktop/Loki/src-tauri/target/release/loki-bridge-mcp"
+#   bridge_url    = "http://127.0.0.1:8420"   # where that helper reaches loki-server (same machine)
+# Without bridge_binary, Claude turns keep the old behavior: anything outside the allowlist is denied.
+
+# Desktop app only (~/.config/loki/config.toml on the machine running the app):
+# [desktop]
+# server_url    = "http://100.64.0.10:8420"
+# device_write  = true    # allow device_write_file / device_edit_file (each still asks you)
+# device_shell  = false   # allow device_run_command (OFF by default; each still asks you)

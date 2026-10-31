@@ -1,0 +1,12 @@
+# cargo deny check licenses
+# Only permissive licenses may enter the build; copyleft needs a deliberate decision and a line in NOTICE.
+[licenses]
+allow = [
+    "MIT", "MIT-0", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib",
+    "Unicode-3.0", "Unlicense", "0BSD", "CC0-1.0", "BSL-1.0",
+    "MPL-2.0", # cssparser, selectors and friends, used unmodified (see NOTICE)
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"

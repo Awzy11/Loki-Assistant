@@ -1,0 +1,33 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Real config with secrets — the real one lives at ~/.config/loki/config.toml, never here.
+config.toml
+
+# A real copy of a real vault (financial plans, kids' school records, journal
+# entries, etc.), used locally to validate the Phase 3 importer against real content —
+# never belongs in git, especially not pushed to GitHub. dev/dummy-vault/ is synthetic
+# test fixture data and stays tracked; this is the one directory under dev/ that isn't.
+dev/vault-copy/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

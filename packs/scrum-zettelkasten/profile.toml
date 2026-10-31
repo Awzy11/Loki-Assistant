@@ -1,0 +1,216 @@
+# Starter pack: Zettelkasten + Personal Scrum.
+# The vault layout this project grew up with: raw captures in an inbox, tagged action items waiting in a backlog, a weekly
+# sprint note, a daily note as the stand-up, atomic permanent notes, and an archive for finished work.
+# Copy this file to ~/.config/loki/profile.toml (or let the setup wizard do it) and edit the folder names to match your vault.
+# Folder names are relative to the vault root, with no leading or trailing slash.
+
+[vault]
+inbox     = "00 - Inbox"
+daily     = "10 - Daily"
+weeks     = "20 - Weeks"
+months    = "25 - Months"
+quarters  = "27 - Quarters"
+backlog   = "30 - Backlog"
+projects  = "40 - Projects"
+notes     = "50 - Notes"
+mocs      = "60 - MOCs"
+sources   = "70 - Sources"
+reference = "80 - Reference"
+templates = "90 - Templates"
+archive   = "99 - Archive"
+# Where your AI routines and findings live (BOD/EOD/BOW/EOW instructions, run notes). Loki edits here only with your confirmation.
+agent     = "AI Infrastructure"
+journal   = "95 - Journal"
+conversations = "98 - Loki Conversations"
+# Optional: where specific things go. Leave these out to get "<mocs>/Upcoming Events.md", "<daily>/News" and "<backlog>/Leads".
+events    = "60 - MOCs/Upcoming Events.md"
+news      = "10 - Daily/News"
+leads     = "30 - Backlog/Tech/Scout Leads"
+priorities     = "60 - MOCs/Current Priorities.md"
+values         = "60 - MOCs/Found Wants.md"
+long_term_vision = "60 - MOCs/Long-Term Vision.md"
+estimation_log = "80 - Reference/System/Estimation Log.md"
+daily_template = "90 - Templates/Daily Note.md"
+week_template  = "90 - Templates/Weekly Note.md"
+
+# Where you are (optional): used by routines that mention the weather. Add latitude and longitude too if you want the forecast cards.
+[person]
+# Who Loki works for. Used when it sorts mail, finds dates in text and drafts replies in your voice.
+name = ""     # e.g. "Sam"
+about = ""    # a sentence of context, e.g. "a nurse with two kids and a marathon in spring"
+email = ""    # contact address for web-push (optional)
+
+[links]
+# Where the dashboard cards link to, if you run these yourself (leave blank for no link).
+news = ""
+leads = ""
+workflows = ""   # your n8n address; each workflow links to <workflows>/workflow/<id>
+zotero = ""
+
+[location]
+# Weather needs a name and both coordinates; leave them out and the weather card is simply not shown.
+name = ""
+
+[backlog]
+# Backlog items live in one subfolder per area: <backlog>/<area>/<Title>.md. Leave the list empty for a flat backlog.
+areas = ["Tech", "Home", "School", "Self"]
+
+# The headings Loki reads in your daily and weekly notes (the text after "## " or "### ").
+[daily.sections]
+mits          = "Today's 3"
+focus_windows = "Focus Windows"
+tasks         = "Tasks"
+routines      = "Routines"
+savers        = "SAVERS"
+weather       = "Weather"
+captures      = "Captures"
+end_of_day    = "End of Day"
+reflection    = "Reflection"
+
+[week.sections]
+goal     = "Sprint Goal"
+backlog  = "Sprint Backlog"
+routines = "Routines"
+queue    = "⏳ Queue"
+done     = "✅ Done"
+events   = "Events this week"
+# Other ### groups in the sprint backlog section that are not task lists.
+skip_groups = ["Standing Commitments"]
+
+# The labels Loki reads in the weekly note's capacity table and progress line.
+[week.labels]
+active_list = "Active this sprint"   # the bold marker **Active this sprint:**
+available   = "Available"
+committed   = "Committed"
+buffer      = "Buffer"
+wip_active  = "Active"
+wip_done    = "Done"
+
+# What the daily notes track in their frontmatter. Rhythm and the day cards are built from this list.
+# Options for a choice go from best to worst. The one property with role = "energy" tells Loki how much you have today:
+# values in `low` give a very short Needs-you list and quiet dashboards; values in `gentle` give a shorter list.
+
+[[daily.properties]]
+key = "sleep_h"
+asked_by = "bod"
+label = "Sleep"
+type = "number"
+unit = "h"
+summary = "average"
+short = "slept"
+compact = true
+
+[[daily.properties]]
+key = "starting_state"
+asked_by = "bod"
+label = "Energy this morning"
+type = "choice"
+options = ["Fresh", "Partial", "Depleted"]
+role = "energy"
+low = ["Depleted"]
+gentle = ["Partial"]
+short = "start"
+compact = true
+
+[[daily.properties]]
+key = "day_rating"
+asked_by = "eod"
+label = "How the day went"
+type = "choice"
+options = ["Good", "Okay", "Hard"]
+short = "day"
+compact = true
+
+[[daily.properties]]
+key = "mits_done"
+label = "MITs done"
+type = "number"
+summary = "average_nonzero"
+chart = "bars"
+
+
+# Everything you can run. A button appears on each listed tab. `run = "chat"` starts the slash command (the markdown file of
+# the same name) in a Loki conversation; `run = "workflow"` starts the n8n workflow of that name. A `todo` keeps a to-do line in your
+# daily or weekly note.
+
+[[routines]]
+id = "bod"
+label = "Start the day"
+hint = "Morning standup: reads your notes, asks for metrics, locks today's schedule."
+period = "daily"
+tabs = ["shape"]
+todo = "start the day"
+
+[[routines]]
+id = "eod"
+label = "Close the day"
+hint = "End-of-day closeout: fills the daily note, moves leftovers to the backlog."
+period = "daily"
+tabs = ["shape"]
+todo = "close the day"
+
+[[routines]]
+id = "haid"
+label = "How am I doing?"
+hint = "Energy and performance trend check."
+period = "anytime"
+tabs = ["rhythm"]
+
+[[routines]]
+id = "journal"
+label = "Open a journal entry"
+hint = "Freeform entry saved to the vault."
+period = "anytime"
+tabs = ["rhythm"]
+
+[[routines]]
+id = "low-cap"
+label = "Low-capacity mode"
+hint = "The depleted-day plan and recovery sequence."
+period = "anytime"
+tabs = ["shape", "rhythm"]
+
+[[routines]]
+id = "bow"
+label = "Plan the week"
+hint = "Monday sprint launch: capacity, backlog pull, week map."
+period = "weekly"
+tabs = ["week", "countdowns"]
+todo = "plan the week"
+
+[[routines]]
+id = "eow"
+label = "Close the week"
+hint = "Sprint review and retrospective, then archives the week."
+period = "weekly"
+tabs = ["week"]
+todo = "close the week"
+
+[[routines]]
+id = "bom"
+label = "Monthly check-in"
+hint = "Light status pass on long-term plans."
+period = "monthly"
+tabs = ["week"]
+
+[[routines]]
+id = "boq"
+label = "Quarterly review"
+hint = "Deep reset; protect 45-60 minutes."
+period = "quarterly"
+tabs = ["week"]
+
+[[routines]]
+id = "backlog-triage"
+label = "Triage the backlog"
+hint = "Eisenhower then GAIN filter over 30 - Backlog."
+period = "anytime"
+tabs = ["backlog"]
+
+[[routines]]
+id = "inbox-triage"
+label = "Triage the vault inbox"
+hint = "Routes everything in 00 - Inbox with the two-matrix filter."
+period = "anytime"
+tabs = ["backlog"]
+
