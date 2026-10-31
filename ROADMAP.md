@@ -9,4 +9,9 @@ Loki is self-hosted only: no accounts, no telemetry, nothing phones home. This l
 - **No Obsidian required.** A plain-folder vault backend, so Loki works on any folder of Markdown files without the Local REST API plugin.
 - **More starter packs** for people who do not use the scrum + Zettelkasten layout.
 - **Generic prompts for the remaining routines** (monthly and quarterly reviews, energy check, journal, low-capacity mode, inbox triage).
+- **An API contract that is tested.** Every endpoint listed in one route table and in [docs/PROTOCOL.md](docs/PROTOCOL.md), with a test that fails when the two drift, plus sample responses that the web app's tests decode, so the server and every screen agree by test.
+- **Screen parity check.** A test that fails when a page exists on one surface (web, desktop, phone) without its counterpart or a written reason, so "the same features everywhere" stays true.
+- **A recommendations ledger.** Suggestions Loki makes are recorded with their evidence and cost, and you accept or decline each one; later Loki shows whether the ones you accepted worked out.
+- **Backup and restore.** One command to back up your settings and Loki's saved data (optionally encrypted), a documented restore, and a check that proves the restore works.
+- **Feedback you approve.** A "send feedback" action that drafts a GitHub issue with names, paths and keys scrubbed, shows you exactly what it will send, and sends nothing until you say yes. Still no telemetry.
 - **Optional hosted mode** is not planned. If real demand shows up it would be a separate decision.
