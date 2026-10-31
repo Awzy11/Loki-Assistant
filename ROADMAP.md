@@ -16,4 +16,4 @@ Loki is self-hosted only: no accounts, no telemetry, nothing phones home. This l
 - **Feedback you approve.** A "send feedback" action that drafts a GitHub issue with names, paths and keys scrubbed, shows you exactly what it will send, and sends nothing until you say yes. Still no telemetry.
 - **Optional hosted mode** is not planned. If real demand shows up it would be a separate decision.
 
-The contract tests, screen parity check, recommendations ledger, backup and restore, and approved feedback items above were inspired by Matt Abate's [life-distributable](https://github.com/mattabate/life-distributable) (MIT), a personal agent built on Claude Code. They are written from scratch here, and the ideas are his to be credited for.
+The contract tests, screen parity check, recommendations ledger, backup and restore, and approved feedback items above were inspired by Matt Abate's [life-distributable](https://github.com/mattabate/life-distributable) (MIT), a personal agent built on Claude Code. They will be built from scratch here; the ideas are his.
