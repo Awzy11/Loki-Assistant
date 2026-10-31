@@ -163,8 +163,26 @@ pub async fn pending(bucket: &str, limit: usize) -> Result<Value, String> {
     Ok(json!({ "items": items }))
 }
 
-/// Remembers messages as digested so the next morning skips them. Gmail itself is untouched.
-pub fn mark_digested(ids: &[String]) {
+/// Gmail label put on newsletters once a digest has used them; the user reviews and clears it. Nothing is trashed here.
+pub const DELETE_LABEL: &str = "Loki/To delete";
+
+/// Remembers messages as digested so the next morning skips them, and labels them in Gmail for deletion. The ids don't say which
+/// account they belong to, so each account is tried; a message only exists in one. A label failure never fails the digest.
+pub async fn mark_digested(ids: &[String]) {
+    let ids: Vec<String> = ids.iter().filter(|i| !i.is_empty() && i.chars().all(|c| c.is_ascii_alphanumeric())).cloned().collect();
+    remember_digested(&ids);
+    if ids.is_empty() {
+        return;
+    }
+    let Some(cfg) = crate::mail::load_config() else { return };
+    for acct in &cfg.accounts {
+        if let Err(e) = crate::mail::label_ids(&acct.email, &ids, DELETE_LABEL).await {
+            eprintln!("[newsletters] couldn't label digested mail in {}: {e}", acct.email);
+        }
+    }
+}
+
+fn remember_digested(ids: &[String]) {
     with(|s| {
         for id in ids.iter().filter(|i| !i.is_empty() && i.chars().all(|c| c.is_ascii_alphanumeric())) {
             if !s.digested.contains(id) {

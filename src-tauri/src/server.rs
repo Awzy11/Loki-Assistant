@@ -1223,7 +1223,7 @@ struct DigestedRequest {
 
 /// `POST /api/v1/mail/newsletters/digested` — the workflow reports which messages made it into a digest.
 async fn v1_newsletters_digested(Json(req): Json<DigestedRequest>) -> StatusCode {
-    crate::newsletters::mark_digested(&req.ids);
+    crate::newsletters::mark_digested(&req.ids).await;
     StatusCode::NO_CONTENT
 }
 

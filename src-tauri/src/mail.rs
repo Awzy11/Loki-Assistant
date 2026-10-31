@@ -486,6 +486,26 @@ pub async fn act_ids(account: &str, ids: &[String], action: &str) -> Result<usiz
     Ok(ids.len())
 }
 
+/// Adds a `Loki/…` label to specific messages in one account (nothing is removed, nothing is trashed). Used to mark digested
+/// newsletters for deletion so the user can review and clear them in Gmail.
+pub async fn label_ids(account: &str, ids: &[String], label: &str) -> Result<usize, String> {
+    if !label.starts_with("Loki/") {
+        return Err("label must start with Loki/".into());
+    }
+    if ids.iter().any(|i| i.is_empty() || !i.chars().all(|c| c.is_ascii_alphanumeric())) {
+        return Err("bad message id".into());
+    }
+    let cfg = load_config().ok_or("Mail isn't set up on this server")?;
+    let acct = pick(&cfg, Some(account)).into_iter().next().ok_or("unknown account")?.clone();
+    let token = access_token(&cfg, &acct).await?;
+    let lid = label_id(&token, label).await?;
+    for chunk in ids.chunks(1000) {
+        api_post(&token, "messages/batchModify", &json!({ "ids": chunk, "addLabelIds": [lid] })).await?;
+    }
+    *data_cache().lock().unwrap() = None;
+    Ok(ids.len())
+}
+
 /// Tool: save a reply to one message as a Gmail DRAFT (never sent).
 pub async fn tool_draft(args: &Value) -> Result<String, String> {
     use base64::Engine;

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { BriefingView } from "./BriefingPage";
 import { weekOf } from "./NavStrip";
 import { dashboardFor } from "./dashboards";
+import { RefreshContext } from "./refresh";
 import { navigate } from "./router";
 import { getDay, type Briefing } from "./transport";
 
@@ -16,12 +17,26 @@ export default function DayPage({ date, today, onAsk }: { date: string; today: s
   const iso = date || today;
   const [b, setB] = useState<Briefing | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const outerRefresh = useContext(RefreshContext);
+  const [tick, setTick] = useState(0);
+  // A checked task re-reads this day from the vault; the page keeps showing the old copy until the new one arrives.
+  const refresh = () => {
+    outerRefresh();
+    setTick((t) => t + 1);
+  };
   useEffect(() => {
     if (!iso) return;
     setB(null);
     setErr(null);
-    getDay(iso).then(setB).catch((e) => setErr(String(e instanceof Error ? e.message : e)));
   }, [iso]);
+  useEffect(() => {
+    if (!iso) return;
+    let live = true;
+    getDay(iso).then((x) => live && setB(x)).catch((e) => live && setErr(String(e instanceof Error ? e.message : e)));
+    return () => {
+      live = false;
+    };
+  }, [iso, tick]);
 
   const nav = (
     <div className="loki-page-head">
@@ -36,5 +51,5 @@ export default function DayPage({ date, today, onAsk }: { date: string; today: s
   if (err) return <div className="loki-page">{nav}<p className="loki-home-err">{err}</p></div>;
   if (!b) return <div className="loki-page">{nav}<p className="loki-home-note">Loading…</p></div>;
   const dash = dashboardFor(b, onAsk);
-  return dash ? <>{nav}{dash}</> : <BriefingView b={b} onAsk={onAsk} nav={nav} />;
+  return <RefreshContext.Provider value={refresh}>{dash ? <>{nav}{dash}</> : <BriefingView b={b} onAsk={onAsk} nav={nav} />}</RefreshContext.Provider>;
 }
