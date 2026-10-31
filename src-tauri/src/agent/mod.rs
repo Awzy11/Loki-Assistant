@@ -152,6 +152,39 @@ async fn build_context_window(
 /// Fewest recent messages ever sent verbatim, however small the token budget.
 pub(crate) const MIN_WINDOW_MESSAGES: usize = 4;
 
+/// A turn that failed after it had already changed something (a vault write, a command, an approved action). Retrying it on another
+/// model would start from the top and could repeat those changes, so the router surfaces this instead of failing over.
+#[derive(Debug)]
+pub struct FailedAfterWrites {
+    pub cause: String,
+    pub tools: Vec<String>,
+}
+
+impl std::fmt::Display for FailedAfterWrites {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} This turn had already run {} before it failed, so it was not retried on another model (that could repeat those changes). Check what was written, then ask again.", self.cause.trim_end(), self.tools.join(", "))
+    }
+}
+
+impl std::error::Error for FailedAfterWrites {}
+
+/// Tools that only read can be re-run safely. Anything else (writes, commands, MCP tools that aren't allow-listed as reads) counts as
+/// a change once it has been executed, whatever it returned: a failed write may still have landed.
+fn changes_things(tier: Tier) -> bool {
+    !matches!(tier, Tier::Ambient | Tier::LocalOnly)
+}
+
+/// Wraps a mid-turn failure as `FailedAfterWrites` when something already changed; otherwise passes it through for normal failover.
+fn after_writes(err: anyhow::Error, changed: &[String]) -> anyhow::Error {
+    if changed.is_empty() {
+        err
+    } else {
+        let mut tools = changed.to_vec();
+        tools.dedup();
+        anyhow::Error::new(FailedAfterWrites { cause: err.to_string(), tools })
+    }
+}
+
 /// Runs one full turn: takes the conversation so far (already including the new user
 /// message), loops through tool calls until the model produces a plain reply, and
 /// returns the updated *full* conversation (for persistence/display — never trimmed) plus
@@ -204,6 +237,8 @@ pub async fn run_turn(
     let mut local_only_touched: Vec<String> = Vec::new();
     // Full (unclipped) results of this turn's tools, newest last, for `{{result:…}}` pipes.
     let mut piped: Vec<(String, String)> = Vec::new();
+    // Tools that changed something this turn (see `FailedAfterWrites`).
+    let mut changed: Vec<String> = Vec::new();
 
     for round in 0..max_rounds {
         let is_last_round = round == max_rounds - 1;
@@ -264,7 +299,8 @@ pub async fn run_turn(
             .chat_stream(&context_for_model, tools_for_round, &mut |t: &str| {
                 emit(sink, ChatEvent::TextDelta { text: t.to_string() })
             })
-            .await?;
+            .await
+            .map_err(|e| after_writes(e, &changed))?;
         if let Some(info) = llm.take_usage() {
             if info["kind"] == "context" {
                 crate::context_stats::record_measured(session_id, &info);
@@ -389,6 +425,9 @@ pub async fn run_turn(
                 "error: email is local-only. Switch this conversation to a local model (Ollama) to use it.".to_string()
             } else {
                 eprintln!("[loki-debug] executing tool {name} with args {}", if name.starts_with("mail_") { "<redacted>".to_string() } else { format!("{effective_args:?}") });
+                if changes_things(registry.tier_of(&name)) {
+                    changed.push(name.clone());
+                }
                 registry.execute(&name, &effective_args, ctx).await
             };
             // Automatic activity log: one line per vault write, in code (best effort, never fails the call).
@@ -410,6 +449,33 @@ pub async fn run_turn(
     }
 
     unreachable!("loop always returns on the last round")
+}
+
+#[cfg(test)]
+mod failover_guard_tests {
+    use super::*;
+
+    #[test]
+    fn only_reads_are_safe_to_repeat() {
+        assert!(!changes_things(Tier::Ambient));
+        assert!(!changes_things(Tier::LocalOnly));
+        assert!(changes_things(Tier::FreeWrite));
+        assert!(changes_things(Tier::ConfirmRequired));
+    }
+
+    #[test]
+    fn a_failure_before_any_change_still_fails_over() {
+        let e = after_writes(anyhow::anyhow!("529 overloaded"), &[]);
+        assert!(e.downcast_ref::<FailedAfterWrites>().is_none());
+    }
+
+    #[test]
+    fn a_failure_after_a_change_names_what_ran() {
+        let e = after_writes(anyhow::anyhow!("connection reset"), &["append_content".into(), "append_content".into()]);
+        let f = e.downcast_ref::<FailedAfterWrites>().expect("wrapped");
+        assert_eq!(f.tools, vec!["append_content".to_string()]);
+        assert!(e.to_string().contains("connection reset") && e.to_string().contains("append_content") && e.to_string().contains("not retried"));
+    }
 }
 
 #[cfg(test)]

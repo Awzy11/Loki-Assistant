@@ -40,12 +40,7 @@ fn load_or_create_token_at(path: PathBuf) -> anyhow::Result<String> {
     let mut bytes = [0u8; 32];
     rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut bytes);
     let token = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
-    fs::write(&path, &token)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-    }
+    crate::paths::write_private(&path, &token)?;
     Ok(token)
 }
 
@@ -64,8 +59,17 @@ fn check_bearer(headers: &HeaderMap, expected: &str) -> bool {
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .map(|got| got == expected)
+        .map(|got| constant_time_eq(got.as_bytes(), expected.as_bytes()))
         .unwrap_or(false)
+}
+
+/// Compares two secrets without stopping at the first difference, so response timing doesn't reveal how much of a guess was right.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    let mut diff = a.len() ^ b.len();
+    for i in 0..a.len().max(b.len()) {
+        diff |= (a.get(i).copied().unwrap_or(0) ^ b.get(i).copied().unwrap_or(0)) as usize;
+    }
+    std::hint::black_box(diff) == 0
 }
 
 /// axum middleware — reject with 401 unless `Authorization: Bearer <token>` matches the
@@ -137,12 +141,7 @@ fn create_credentials() -> anyhow::Result<(Credentials, String)> {
     let password_hash = hash_password(&password)?;
     let creds = Credentials { username: "loki".to_string(), password_hash };
     let path = credentials_path()?;
-    fs::write(&path, toml::to_string(&creds)?)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-    }
+    crate::paths::write_private(&path, toml::to_string(&creds)?)?;
     Ok((creds, password))
 }
 
@@ -150,12 +149,7 @@ fn create_credentials() -> anyhow::Result<(Credentials, String)> {
 pub fn set_credentials(username: &str, password: &str) -> anyhow::Result<()> {
     let creds = Credentials { username: username.to_string(), password_hash: hash_password(password)? };
     let path = credentials_path()?;
-    fs::write(&path, toml::to_string(&creds)?)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-    }
+    crate::paths::write_private(&path, toml::to_string(&creds)?)?;
     Ok(())
 }
 
@@ -189,4 +183,17 @@ pub fn login(username: &str, password: &str) -> anyhow::Result<String> {
         anyhow::bail!("invalid username or password");
     }
     load_or_create_token()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn constant_time_eq_matches_equality() {
+        assert!(super::constant_time_eq(b"abc123", b"abc123"));
+        assert!(!super::constant_time_eq(b"abc123", b"abc124"));
+        assert!(!super::constant_time_eq(b"abc", b"abc123"));
+        assert!(!super::constant_time_eq(b"abc123", b"abc"));
+        assert!(!super::constant_time_eq(b"", b"x"));
+        assert!(super::constant_time_eq(b"", b""));
+    }
 }

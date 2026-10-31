@@ -30,12 +30,7 @@ fn load_or_create_key() -> anyhow::Result<ChaCha20Poly1305> {
     } else {
         let mut key = [0u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut key);
-        fs::write(&path, key)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-        }
+        crate::paths::write_private(&path, key)?;
         key.to_vec()
     };
     ChaCha20Poly1305::new_from_slice(&key_bytes).map_err(|e| anyhow::anyhow!("bad key material: {e}"))

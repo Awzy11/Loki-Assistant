@@ -85,13 +85,7 @@ fn save(r: &Review) {
             let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
         }
     }
-    if std::fs::write(&p, serde_json::to_vec(r).unwrap_or_default()).is_ok() {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
-        }
-    }
+    let _ = crate::paths::write_private(&p, serde_json::to_vec(r).unwrap_or_default());
 }
 
 fn category(labels: &[String]) -> String {

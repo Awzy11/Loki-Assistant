@@ -12,6 +12,7 @@ use serde_json::Value;
 use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -171,6 +172,27 @@ pub fn edit_file(path: &Path, old: &str, new: &str, replace_all: bool) -> Result
     }
 }
 
+/// How long output pipes get to close after the shell itself has exited.
+const PIPE_GRACE: Duration = Duration::from_secs(2);
+
+/// Reads a pipe to its end on a thread, appending into the returned buffer; the receiver gets one message when the pipe closes.
+fn drain(mut pipe: impl Read + Send + 'static) -> (Arc<Mutex<Vec<u8>>>, std::sync::mpsc::Receiver<()>) {
+    let buf = Arc::new(Mutex::new(Vec::new()));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let shared = buf.clone();
+    std::thread::spawn(move || {
+        let mut chunk = [0u8; 8192];
+        while let Ok(n) = pipe.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            shared.lock().unwrap().extend_from_slice(&chunk[..n]);
+        }
+        let _ = tx.send(());
+    });
+    (buf, rx)
+}
+
 pub fn run_command(command: &str, cwd: &Path, timeout_secs: u64) -> Result<String, String> {
     let mut child = Command::new("sh")
         .arg("-c")
@@ -182,26 +204,21 @@ pub fn run_command(command: &str, cwd: &Path, timeout_secs: u64) -> Result<Strin
         .process_group(0) // own group, so a timeout can kill the command's children too
         .spawn()
         .map_err(|e| format!("couldn't start shell: {e}"))?;
-    // Drain pipes on threads so a chatty command can't block on a full pipe.
-    let mut out = child.stdout.take().unwrap();
-    let mut err = child.stderr.take().unwrap();
-    let t_out = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = out.read_to_string(&mut s);
-        s
-    });
-    let t_err = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = err.read_to_string(&mut s);
-        s
-    });
+    // Drain pipes on threads so a chatty command can't block on a full pipe. Each thread appends into a shared buffer and signals when its
+    // pipe closes, so the output read so far is still available if we have to stop waiting.
+    let (out_buf, out_done) = drain(child.stdout.take().unwrap());
+    let (err_buf, err_done) = drain(child.stderr.take().unwrap());
+    let group = format!("-{}", child.id());
+    let kill_group = || {
+        // Some shells (dash) don't exec a lone command, and a command can leave background children behind; both keep the pipes open.
+        let _ = Command::new("kill").args(["-KILL", "--", &group]).status();
+    };
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
     let status = loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(st) => break Some(st),
             None if Instant::now() >= deadline => {
-                // Some shells (dash) don't exec a lone command; killing only the shell would leave it holding the pipes open.
-                let _ = Command::new("kill").args(["-KILL", "--", &format!("-{}", child.id())]).status();
+                kill_group();
                 let _ = child.kill();
                 let _ = child.wait();
                 break None;
@@ -209,12 +226,28 @@ pub fn run_command(command: &str, cwd: &Path, timeout_secs: u64) -> Result<Strin
             None => std::thread::sleep(Duration::from_millis(25)),
         }
     };
-    let stdout = t_out.join().unwrap_or_default();
-    let stderr = t_err.join().unwrap_or_default();
-    let mut text = stdout;
+    // The shell is gone, but a background child (`npm run dev &`, `sleep 600 &`) can still hold the pipes open. Give them a short grace
+    // period to close, then stop those children and return what was read, rather than waiting on them indefinitely.
+    let grace = if status.is_some() { PIPE_GRACE.min(deadline.saturating_duration_since(Instant::now())) } else { PIPE_GRACE };
+    let wait_until = Instant::now() + grace;
+    let closed = |rx: &std::sync::mpsc::Receiver<()>| rx.recv_timeout(wait_until.saturating_duration_since(Instant::now())).is_ok();
+    let both_closed = closed(&out_done) & closed(&err_done);
+    let mut note = String::new();
+    if !both_closed {
+        kill_group();
+        let _ = out_done.recv_timeout(Duration::from_secs(1));
+        let _ = err_done.recv_timeout(Duration::from_secs(1));
+        if status.is_some() {
+            note = "\n[a background process was still running when the command ended; it was stopped]".to_string();
+        }
+    }
+    let text_of = |buf: &Arc<Mutex<Vec<u8>>>| String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    let mut text = text_of(&out_buf);
+    let stderr = text_of(&err_buf);
     if !stderr.is_empty() {
         text.push_str(&format!("\n[stderr]\n{stderr}"));
     }
+    text.push_str(&note);
     match status {
         Some(st) if st.success() => Ok(truncate(text)),
         Some(st) => Err(truncate(format!("exit status {}\n{text}", st.code().map_or("signal".into(), |c| c.to_string())))),
@@ -338,6 +371,19 @@ mod tests {
         let started = Instant::now();
         assert!(run_command("sleep 30", &d, 1).unwrap_err().contains("timed out"));
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn a_background_child_cannot_hold_the_call_open() {
+        let d = tmp("bg");
+        let started = Instant::now();
+        let out = run_command("sleep 30 & echo started", &d, 20).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(8), "waited on the background child: {:?}", started.elapsed());
+        assert!(out.contains("started") && out.contains("background process"));
+        // A command whose output simply ends is unaffected.
+        let quick = Instant::now();
+        assert_eq!(run_command("echo done", &d, 20).unwrap().trim(), "done");
+        assert!(quick.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

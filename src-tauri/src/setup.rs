@@ -272,13 +272,7 @@ fn set_in_section(text: &str, section: &str, key: &str, value: &str) -> String {
 }
 
 fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
-    std::fs::write(path, text)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(())
+    crate::paths::write_private(path, text)
 }
 
 /// Writes everything for a validated request. Never overwrites an existing config.toml, profile.toml or command.

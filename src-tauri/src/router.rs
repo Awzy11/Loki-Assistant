@@ -170,6 +170,13 @@ where
     let mut skipped = Vec::new();
     for provider in chain {
         let mut result = f(provider.clone()).await;
+        // A turn that already changed something must not be replayed elsewhere: it would repeat those changes.
+        if let Err(e) = &result {
+            if e.downcast_ref::<crate::agent::FailedAfterWrites>().is_some() {
+                eprintln!("[loki-debug] provider '{}' failed after changing things; not failing over: {e}", provider.name());
+                return result.map(|value| Failover { value, provider: provider.name().to_string(), skipped });
+            }
+        }
         // llama-server sometimes rejects a malformed tool call ("peg-native" parse error) — it's
         // sampling noise, so one retry on the same provider usually succeeds.
         if matches!(&result, Err(e) if e.to_string().contains("peg-native")) {
@@ -357,6 +364,21 @@ mod tests {
         let e = first_success(&c, |p| async move { p.chat(&[], &[]).await.map(|m| m.content) }).await.err().unwrap();
         let s = e.to_string();
         assert!(s.contains("a:") && s.contains("b:"));
+    }
+
+    #[tokio::test]
+    async fn failover_stops_when_the_turn_already_changed_things() {
+        let c = chain(&[("a", false), ("b", false)]);
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let e = first_success(&c, |_p| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async { Err::<String, _>(anyhow::Error::new(crate::agent::FailedAfterWrites { cause: "529".into(), tools: vec!["append_content".into()] })) }
+        })
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "the second provider must not be tried");
+        assert!(e.downcast_ref::<crate::agent::FailedAfterWrites>().is_some());
     }
 
     #[test]

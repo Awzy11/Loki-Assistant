@@ -64,12 +64,7 @@ fn read_secrets_toml() -> anyhow::Result<Toml> {
 
 fn write_secrets_toml(doc: &Toml) -> anyhow::Result<()> {
     let path = secrets_path()?;
-    fs::write(&path, toml::to_string_pretty(doc)?)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-    }
+    crate::paths::write_private(&path, toml::to_string_pretty(doc)?)?;
     Ok(())
 }
 
