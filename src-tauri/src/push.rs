@@ -29,13 +29,13 @@ pub struct Keys {
 }
 
 fn data_dir() -> Option<PathBuf> {
-    let d = dirs::data_dir()?.join("loki");
+    let d = crate::paths::data_dir()?.join("loki");
     std::fs::create_dir_all(&d).ok()?;
     Some(d)
 }
 
 fn conf_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("loki"))
+    crate::paths::config_dir().map(|d| d.join("loki"))
 }
 
 fn subs_path() -> Option<PathBuf> {

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 /// was for the Obsidian API key) for the hand-edit bootstrap path — encryption only applies to
 /// values saved through the Settings UI/API, stored in `~/.config/loki/llm.secrets.toml`.
 fn key_path() -> anyhow::Result<PathBuf> {
-    let dir = dirs::config_dir().ok_or_else(|| anyhow::anyhow!("no config dir found for this OS"))?.join("loki");
+    let dir = crate::paths::config_dir().ok_or_else(|| anyhow::anyhow!("no config dir found for this OS"))?.join("loki");
     fs::create_dir_all(&dir)?;
     Ok(dir.join("secret.key"))
 }

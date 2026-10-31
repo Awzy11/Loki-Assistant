@@ -19,7 +19,7 @@ pub struct Expanded {
 /// Where commands live, in the order they are searched: a name in Loki's own folder wins over the same name in Claude Code's.
 fn commands_dirs() -> Vec<PathBuf> {
     let mut v = Vec::new();
-    if let Some(c) = dirs::config_dir() {
+    if let Some(c) = crate::paths::config_dir() {
         v.push(c.join("loki").join("commands"));
     }
     if let Some(h) = dirs::home_dir() {

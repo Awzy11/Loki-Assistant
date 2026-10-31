@@ -72,7 +72,7 @@ pub fn digest(days: u64) -> Digest {
     let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0).saturating_sub(days * 86_400);
     let mut d = Digest::default();
     let mut counts = HashMap::new();
-    let dir = dirs::data_dir().map(|p| p.join("loki").join("events"));
+    let dir = crate::paths::data_dir().map(|p| p.join("loki").join("events"));
     for entry in dir.and_then(|p| std::fs::read_dir(p).ok()).into_iter().flatten().flatten() {
         let Some(id) = entry.path().file_stem().map(|s| s.to_string_lossy().to_string()) else { continue };
         let events = crate::event_log::read(&id);

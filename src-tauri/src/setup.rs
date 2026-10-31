@@ -1,6 +1,6 @@
 //! First-run onboarding, served by `loki-server` when there is no `config.toml` yet. The browser walks the person through their models
 //! (local, cloud or both), their notes, their vault layout, who they are and their login; this module checks each answer
-//! (`/api/setup/probe`), writes the files (`/api/setup/commit`) and then restarts the server into its normal mode.
+//! (`/api/setup/probe`), writes the files (`/api/setup/commit`) and then carries the server on into its normal mode.
 //!
 //! Setup mode only answers connections from this machine (or anyone, if `LOKI_SETUP_ALLOW_REMOTE=1`), because nothing is protected by a
 //! login until setup finishes.
@@ -10,7 +10,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -402,10 +402,10 @@ async fn commit(Json(req): Json<SetupRequest>) -> Response {
     };
     match write_files(&req, &dir) {
         Ok(done) => {
-            // Answer first, then start over in normal mode (same process id, same arguments and environment).
+            // Answer first, then let the server move on into normal mode.
             tokio::spawn(async {
                 tokio::time::sleep(std::time::Duration::from_millis(900)).await;
-                restart_self();
+                finish();
             });
             Json(json!({ "ok": true, "wrote": done })).into_response()
         }
@@ -413,20 +413,24 @@ async fn commit(Json(req): Json<SetupRequest>) -> Response {
     }
 }
 
-#[cfg(unix)]
-fn restart_self() {
-    use std::os::unix::process::CommandExt;
-    if let Ok(exe) = std::env::current_exe() {
-        let err = std::process::Command::new(exe).args(std::env::args().skip(1)).exec();
-        eprintln!("setup finished but the server could not restart itself ({err}); please start it again");
+static FINISHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static FINISHED_NOTIFY: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Resolves once setup has written its files. The server stops listening and carries on into normal mode in the same process, so
+/// nothing depends on the OS (no exec, no second process) and services or containers never see an exit.
+pub async fn wait_finished() {
+    loop {
+        let woken = FINISHED_NOTIFY.notified();
+        if FINISHED.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        woken.await;
     }
-    std::process::exit(0);
 }
 
-#[cfg(not(unix))]
-fn restart_self() {
-    eprintln!("setup finished; please start the server again");
-    std::process::exit(0);
+fn finish() {
+    FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
+    FINISHED_NOTIFY.notify_waiters();
 }
 
 /// Refuses connections from other machines unless `LOKI_SETUP_ALLOW_REMOTE=1`.

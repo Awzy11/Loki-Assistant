@@ -35,7 +35,7 @@ pub fn token() -> Option<String> {
             return Some(t.trim().to_string());
         }
     }
-    let p = dirs::config_dir()?.join("loki").join("speech_token");
+    let p = crate::paths::config_dir()?.join("loki").join("speech_token");
     std::fs::read_to_string(p).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
 }
 

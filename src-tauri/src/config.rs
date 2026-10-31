@@ -455,7 +455,7 @@ impl ObsidianConfig {
 }
 
 pub(crate) fn config_dir() -> anyhow::Result<PathBuf> {
-    let dir = dirs::config_dir().ok_or_else(|| anyhow::anyhow!("no config dir found for this OS"))?.join("loki");
+    let dir = crate::paths::config_dir().ok_or_else(|| anyhow::anyhow!("no config dir found for this OS"))?.join("loki");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -471,7 +471,7 @@ pub(crate) fn secrets_path() -> anyhow::Result<PathBuf> {
 /// The owned knowledge store's SQLite file — data, not config, so it lives under the OS data
 /// dir rather than alongside `config.toml`/`llm.secrets.toml`.
 pub fn knowledge_db_path() -> anyhow::Result<PathBuf> {
-    let dir = dirs::data_dir().ok_or_else(|| anyhow::anyhow!("no data dir found for this OS"))?.join("loki");
+    let dir = crate::paths::data_dir().ok_or_else(|| anyhow::anyhow!("no data dir found for this OS"))?.join("loki");
     std::fs::create_dir_all(&dir)?;
     Ok(dir.join("knowledge.db"))
 }

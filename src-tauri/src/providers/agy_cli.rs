@@ -88,7 +88,7 @@ pub fn build_prompt(messages: &[Message], tools: &[ToolDef]) -> String {
 
 impl AgyCliProvider {
     pub fn new(binary: String, model: Option<String>, timeout_secs: u64) -> Self {
-        let cwd = dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("loki").join("agy-scratch-cwd");
+        let cwd = crate::paths::data_dir().unwrap_or_else(std::env::temp_dir).join("loki").join("agy-scratch-cwd");
         let _ = std::fs::create_dir_all(&cwd);
         Self { binary, model, cwd, timeout: Duration::from_secs(timeout_secs.max(30)) }
     }

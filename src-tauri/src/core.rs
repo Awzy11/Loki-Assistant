@@ -385,7 +385,7 @@ impl Core {
             engine_settings: StdMutex::new(EngineSettings::load()),
             claude_cooldown: Cooldown::default(),
             bridge: Arc::new(Bridge::new(
-                Arc::new(match dirs::data_dir() {
+                Arc::new(match crate::paths::data_dir() {
                     Some(d) => crate::permission_rules::PermissionRules::load(d.join("loki").join("always_allow.json")),
                     None => crate::permission_rules::PermissionRules::in_memory(),
                 }),

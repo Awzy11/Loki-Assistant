@@ -65,7 +65,7 @@ pub fn job(id: &str) -> Option<Job> {
         return Some(j.clone());
     }
     // Not in memory (server restarted): look for a persisted report.
-    let root = dirs::data_dir()?.join("loki").join("troubleshoot");
+    let root = crate::paths::data_dir()?.join("loki").join("troubleshoot");
     for e in std::fs::read_dir(root).ok()?.flatten() {
         if let Ok(raw) = std::fs::read_to_string(e.path().join("job.json")) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
@@ -85,7 +85,7 @@ pub fn job(id: &str) -> Option<Job> {
 }
 
 pub fn bundle_dir() -> anyhow::Result<PathBuf> {
-    let d = dirs::data_dir().ok_or_else(|| anyhow::anyhow!("no data dir"))?.join("loki").join("troubleshoot").join(format!("{}-{:04x}", now(), rand::random::<u16>()));
+    let d = crate::paths::data_dir().ok_or_else(|| anyhow::anyhow!("no data dir"))?.join("loki").join("troubleshoot").join(format!("{}-{:04x}", now(), rand::random::<u16>()));
     std::fs::create_dir_all(&d)?;
     // Keep the 20 newest bundles.
     if let Some(parent) = d.parent() {
@@ -151,7 +151,7 @@ pub fn claude_args(dir: &PathBuf, repo: &str) -> Vec<String> {
 // ---- past reports ----
 
 fn reports_root() -> Option<PathBuf> {
-    Some(dirs::data_dir()?.join("loki").join("troubleshoot"))
+    Some(crate::paths::data_dir()?.join("loki").join("troubleshoot"))
 }
 
 /// Finds a report's bundle directory by its job id.

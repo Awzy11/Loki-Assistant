@@ -30,7 +30,7 @@ struct NState {
 static STATE: Mutex<Option<NState>> = Mutex::new(None);
 
 fn path() -> Option<std::path::PathBuf> {
-    let d = dirs::data_dir()?.join("loki").join("mail_inbox");
+    let d = crate::paths::data_dir()?.join("loki").join("mail_inbox");
     std::fs::create_dir_all(&d).ok()?;
     Some(d.join("newsletters.json"))
 }

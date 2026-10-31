@@ -31,7 +31,7 @@ impl Ctx {
         let token = match std::env::var("LOKI_TOKEN") {
             Ok(t) => t,
             Err(_) => {
-                let p = dirs::config_dir().ok_or_else(|| anyhow::anyhow!("no config dir"))?.join("loki").join("api_token");
+                let p = loki_lib::paths::config_dir().ok_or_else(|| anyhow::anyhow!("no config dir"))?.join("loki").join("api_token");
                 std::fs::read_to_string(&p).map_err(|e| anyhow::anyhow!("couldn't read {} ({e}); set LOKI_TOKEN", p.display()))?.trim().to_string()
             }
         };

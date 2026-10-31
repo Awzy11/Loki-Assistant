@@ -89,7 +89,7 @@ impl ClaudeCliProvider {
         sessions: Option<(std::sync::Arc<ClaudeSessions>, String)>,
     ) -> Self {
         // A neutral working directory: no CLAUDE.md, memory or project settings to discover.
-        let cwd = dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("loki").join("claude-inference-cwd");
+        let cwd = crate::paths::data_dir().unwrap_or_else(std::env::temp_dir).join("loki").join("claude-inference-cwd");
         let _ = std::fs::create_dir_all(&cwd);
         Self { binary, model, cwd, idle_timeout: Duration::from_secs(idle_timeout_secs.max(30)), last_usage: Mutex::new(None), sessions }
     }

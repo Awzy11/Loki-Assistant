@@ -11,7 +11,7 @@ const MAX_FILE_BYTES: u64 = 6 * 1024 * 1024;
 const MAX_FIELD_CHARS: usize = 8000;
 
 fn dir() -> Option<PathBuf> {
-    let d = dirs::data_dir()?.join("loki").join("events");
+    let d = crate::paths::data_dir()?.join("loki").join("events");
     std::fs::create_dir_all(&d).ok()?;
     Some(d)
 }

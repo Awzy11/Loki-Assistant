@@ -797,7 +797,7 @@ impl Profile {
 }
 
 fn path() -> PathBuf {
-    std::env::var("LOKI_PROFILE").map(PathBuf::from).unwrap_or_else(|_| dirs::config_dir().unwrap_or_default().join("loki").join("profile.toml"))
+    std::env::var("LOKI_PROFILE").map(PathBuf::from).unwrap_or_else(|_| crate::paths::config_dir().unwrap_or_default().join("loki").join("profile.toml"))
 }
 
 static PROFILE: OnceLock<Profile> = OnceLock::new();

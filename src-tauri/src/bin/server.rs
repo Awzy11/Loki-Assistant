@@ -25,14 +25,20 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    // No config.toml yet: serve the first-run setup in the browser instead of failing. It writes the config and a login, then restarts this
-    // process into normal mode.
+    // No config.toml yet: serve the first-run setup in the browser instead of failing. It writes the config and a login, then this
+    // process stops serving setup and carries on below in normal mode (no restart, so it behaves the same on every OS and in a container).
     if loki_lib::setup::needs_setup() {
         let addr = format!("{bind}:{port}");
         println!("Loki is not set up yet. Open http://{addr} in a browser on this machine to finish setup.");
         let listener = tokio::net::TcpListener::bind(&addr).await?;
-        axum::serve(listener, loki_lib::setup::router(static_dir).into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
-        return Ok(());
+        let serving = axum::serve(listener, loki_lib::setup::router(static_dir.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>())
+            .with_graceful_shutdown(loki_lib::setup::wait_finished());
+        // A browser holding a connection open must not keep setup alive for long.
+        tokio::select! {
+            r = serving => r?,
+            _ = async { loki_lib::setup::wait_finished().await; tokio::time::sleep(std::time::Duration::from_secs(5)).await } => {}
+        }
+        println!("Setup finished; starting Loki.");
     }
 
     // First run only — every startup after this finds credentials.toml already there and

@@ -32,7 +32,7 @@ pub struct MailConfig {
 }
 
 fn config_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("loki"))
+    crate::paths::config_dir().map(|d| d.join("loki"))
 }
 
 #[derive(Deserialize)]

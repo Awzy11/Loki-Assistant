@@ -28,7 +28,7 @@ pub struct Overrides {
 }
 
 fn path() -> Option<std::path::PathBuf> {
-    Some(dirs::config_dir()?.join("loki").join("mcp_overrides.json"))
+    Some(crate::paths::config_dir()?.join("loki").join("mcp_overrides.json"))
 }
 pub fn load_overrides() -> Overrides {
     path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()

@@ -1591,7 +1591,7 @@ pub struct Decision {
 }
 
 fn store_path() -> Option<std::path::PathBuf> {
-    dirs::data_dir().map(|d| d.join("loki").join("needs_you.json"))
+    crate::paths::data_dir().map(|d| d.join("loki").join("needs_you.json"))
 }
 
 pub fn load_decisions() -> Vec<Decision> {

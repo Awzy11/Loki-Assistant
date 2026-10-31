@@ -64,7 +64,7 @@ static STATE: Mutex<Option<State>> = Mutex::new(None);
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
 fn path() -> Option<std::path::PathBuf> {
-    let d = dirs::data_dir()?.join("loki").join("mail_inbox");
+    let d = crate::paths::data_dir()?.join("loki").join("mail_inbox");
     std::fs::create_dir_all(&d).ok()?;
     #[cfg(unix)]
     {

@@ -38,7 +38,7 @@ impl ContextSettings {
 static SETTINGS: RwLock<ContextSettings> = RwLock::new(ContextSettings { autocompact: true, history_fraction: 0.125, num_ctx: 262_144, max_turns: crate::session_store::SUMMARY_TRIGGER });
 
 fn settings_path() -> Option<std::path::PathBuf> {
-    dirs::data_dir().map(|d| d.join("loki").join("context_settings.json"))
+    crate::paths::data_dir().map(|d| d.join("loki").join("context_settings.json"))
 }
 
 /// Loads the settings: config.toml first, then the saved override file if there is one.

@@ -18,7 +18,7 @@ fn main() {
     let text = if std::path::Path::new(target).is_file() {
         std::fs::read_to_string(target).unwrap_or_else(|e| fail(&format!("could not read {target}: {e}")))
     } else {
-        let dirs = [dirs::config_dir().map(|c| c.join("loki").join("commands")), dirs::home_dir().map(|h| h.join(".claude").join("commands"))];
+        let dirs = [loki_lib::paths::config_dir().map(|c| c.join("loki").join("commands")), dirs::home_dir().map(|h| h.join(".claude").join("commands"))];
         dirs.iter().flatten().find_map(|d| std::fs::read_to_string(d.join(format!("{target}.md"))).ok()).unwrap_or_else(|| fail(&format!("no command called {target} (and no such file)")))
     };
     let profile = if blank { Profile::default() } else { profile::init().cloned().unwrap_or_else(|e| fail(&e)) };

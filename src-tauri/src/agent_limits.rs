@@ -10,7 +10,7 @@ static ORDINARY: AtomicUsize = AtomicUsize::new(0);
 static ROUTINE: AtomicUsize = AtomicUsize::new(0);
 
 fn path() -> Option<std::path::PathBuf> {
-    Some(std::path::PathBuf::from(std::env::var_os("HOME")?).join(".local/share/loki/agent_limits.json"))
+    Some(crate::paths::data_dir()?.join("loki").join("agent_limits.json"))
 }
 
 /// Seed from config, then let the saved file win.

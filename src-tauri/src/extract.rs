@@ -270,7 +270,7 @@ pub fn inbox_note(p: &Proposal, label: &str, link: &str, today: &str) -> String 
 }
 
 fn seen_path() -> Option<std::path::PathBuf> {
-    let d = dirs::data_dir()?.join("loki");
+    let d = crate::paths::data_dir()?.join("loki");
     std::fs::create_dir_all(&d).ok()?;
     Some(d.join("extract_seen.json"))
 }

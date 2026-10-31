@@ -75,7 +75,7 @@ struct Store {
 }
 
 fn path() -> Option<PathBuf> {
-    let d = dirs::data_dir()?.join("loki");
+    let d = crate::paths::data_dir()?.join("loki");
     std::fs::create_dir_all(&d).ok()?;
     Some(d.join("lessons.json"))
 }

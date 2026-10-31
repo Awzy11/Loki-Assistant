@@ -1015,7 +1015,7 @@ impl Tool for DelegateLocal {
         let (history, reply) = crate::agent::run_turn(local.as_ref(), &reg, ctx, &sid, vec![Message::user(wrapped)], &ctx.context.prompt_block, None, None, crate::agent_limits::ordinary(), policy).await?;
         let private = history.iter().any(|m| m.role == "tool" && m.tool_name.as_deref().is_some_and(|n| reg.tier_of(n) == Tier::LocalOnly));
         let rounds = history.iter().filter(|m| m.role == "tool").count();
-        if let Some(dir) = dirs::data_dir().map(|d| d.join("loki")) {
+        if let Some(dir) = crate::paths::data_dir().map(|d| d.join("loki")) {
             use std::io::Write;
             let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
             if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("delegations.jsonl")) {

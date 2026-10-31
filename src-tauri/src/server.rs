@@ -984,7 +984,7 @@ async fn v1_workflow_run(Json(req): Json<WorkflowRun>) -> Result<Json<serde_json
     if !wants_url && !input.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "this routine does not take an input".to_string()));
     }
-    let key_path = std::env::var("HOME").map(|h| format!("{h}/.config/loki/n8n_run_key")).unwrap_or_default();
+    let key_path = crate::paths::config_dir().map(|d| d.join("loki").join("n8n_run_key")).unwrap_or_default();
     let key = std::fs::read_to_string(&key_path).map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "the n8n run key is not set up on this host".to_string()))?;
     let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let res = client

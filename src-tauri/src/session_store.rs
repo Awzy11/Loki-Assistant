@@ -50,7 +50,7 @@ pub struct Persisted {
 }
 
 fn dir() -> anyhow::Result<PathBuf> {
-    let d = dirs::data_dir().ok_or_else(|| anyhow::anyhow!("no data dir"))?.join("loki").join("sessions");
+    let d = crate::paths::data_dir().ok_or_else(|| anyhow::anyhow!("no data dir"))?.join("loki").join("sessions");
     std::fs::create_dir_all(&d)?;
     Ok(d)
 }

@@ -68,7 +68,7 @@ pub struct Review {
 pub type Shared = Arc<Mutex<Review>>;
 
 fn store_path() -> Option<std::path::PathBuf> {
-    dirs::data_dir().map(|d| d.join("loki").join("mail_review").join("review.json"))
+    crate::paths::data_dir().map(|d| d.join("loki").join("mail_review").join("review.json"))
 }
 
 pub fn load() -> Review {

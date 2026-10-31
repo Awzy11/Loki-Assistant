@@ -40,7 +40,7 @@ pub struct EngineSettings {
 }
 
 fn settings_path() -> Option<PathBuf> {
-    dirs::data_dir().map(|d| d.join("loki").join("settings.json"))
+    crate::paths::data_dir().map(|d| d.join("loki").join("settings.json"))
 }
 
 impl EngineSettings {

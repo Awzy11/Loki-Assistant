@@ -34,7 +34,7 @@ pub struct AuditRecord {
 }
 
 fn dir() -> Option<PathBuf> {
-    let d = dirs::data_dir()?.join("loki").join("audits");
+    let d = crate::paths::data_dir()?.join("loki").join("audits");
     std::fs::create_dir_all(&d).ok()?;
     Some(d)
 }
