@@ -988,18 +988,57 @@ async fn v1_workflow_run(Json(req): Json<WorkflowRun>) -> Result<Json<serde_json
     }
     let key_path = crate::paths::config_dir().map(|d| d.join("loki").join("n8n_run_key")).unwrap_or_default();
     let key = std::fs::read_to_string(&key_path).map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "the n8n run key is not set up on this host".to_string()))?;
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let label = crate::profile::get().routines.iter().find(|r| r.id == req.slug).map(|r| r.label.clone()).filter(|l| !l.is_empty()).unwrap_or_else(|| req.slug.clone());
+    let (slug, force) = (req.slug.clone(), req.force);
+    // The webhook answers when the workflow's last node finishes, so this request lasts as long as the run. It goes on in the
+    // background; if n8n refuses within a couple of seconds the caller hears about it, and otherwise the person gets a phone
+    // notification when the run ends.
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    tokio::spawn(async move {
+        let started = std::time::Instant::now();
+        let outcome = run_workflow_webhook(&slug, &key, force, &input).await;
+        eprintln!("[loki-debug] workflow {slug} ended after {}s: {outcome:?}", started.elapsed().as_secs());
+        if tx.send(outcome.clone()).is_err() {
+            // Nobody is waiting on this answer any more, so it is the end of a long run.
+            crate::push::send_in_background(workflow_done_payload(&slug, &label, &outcome, started.elapsed()));
+        }
+    });
+    match tokio::time::timeout(WORKFLOW_QUICK_ANSWER, rx).await {
+        Ok(Ok(Err(why))) => Err((StatusCode::BAD_GATEWAY, why)),
+        _ => Ok(Json(serde_json::json!({ "started": true }))),
+    }
+}
+
+/// How long the Run button waits for n8n to refuse a run before treating it as started.
+const WORKFLOW_QUICK_ANSWER: std::time::Duration = std::time::Duration::from_secs(2);
+/// The longest a workflow run is followed for.
+const WORKFLOW_MAX: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+async fn run_workflow_webhook(slug: &str, key: &str, force: bool, input: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder().timeout(WORKFLOW_MAX).build().map_err(|e| e.to_string())?;
     let res = client
-        .post(format!("http://127.0.0.1:5678/webhook/run-{}", req.slug))
+        .post(format!("http://127.0.0.1:5678/webhook/run-{slug}"))
         .header("X-Run-Key", key.trim())
-        .json(&serde_json::json!({ "force": req.force, "input": input }))
+        .json(&serde_json::json!({ "force": force, "input": input }))
         .send()
         .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("n8n did not answer: {e}")))?;
-    if !res.status().is_success() {
-        return Err((StatusCode::BAD_GATEWAY, format!("n8n said {} (is the workflow published?)", res.status())));
+        .map_err(|e| if e.is_timeout() { "it was still running after 15 minutes".to_string() } else { format!("n8n did not answer: {e}") })?;
+    match res.status().as_u16() {
+        200..=299 => Ok(()),
+        404 => Err("n8n has no such workflow (is it published?)".to_string()),
+        code => Err(format!("n8n reported an error ({code})")),
     }
-    Ok(Json(serde_json::json!({ "started": true })))
+}
+
+/// The phone notification for a workflow run that ended while nobody was waiting on the button.
+fn workflow_done_payload(slug: &str, label: &str, outcome: &Result<(), String>, elapsed: std::time::Duration) -> serde_json::Value {
+    let secs = elapsed.as_secs();
+    let took = if secs >= 120 { format!("{} min", secs / 60) } else { format!("{secs}s") };
+    let (title, body) = match outcome {
+        Ok(()) => (format!("{label} finished"), format!("Done in {took}.")),
+        Err(why) => (format!("{label} hit a problem"), why.chars().take(120).collect::<String>()),
+    };
+    serde_json::json!({ "title": title, "body": body, "url": "/", "tag": format!("workflow-{slug}") })
 }
 
 /// One local-model call with a Fabric pattern's prompt as the system message: thinking off, capped output, hard timeout.
@@ -1730,5 +1769,27 @@ mod ai_format_tests {
         assert_eq!(json_format(false, Some(&schema)), Some(schema));
         // a schema that is not an object is ignored rather than sent
         assert_eq!(json_format(false, Some(&serde_json::json!("json"))), None);
+    }
+}
+
+#[cfg(test)]
+mod workflow_done_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn success_says_how_long_it_took() {
+        let p = workflow_done_payload("yt-wisdom", "YouTube wisdom", &Ok(()), Duration::from_secs(9));
+        assert_eq!(p["title"], "YouTube wisdom finished");
+        assert_eq!(p["body"], "Done in 9s.");
+        assert_eq!(p["tag"], "workflow-yt-wisdom");
+        assert_eq!(workflow_done_payload("x", "X", &Ok(()), Duration::from_secs(300))["body"], "Done in 5 min.");
+    }
+
+    #[test]
+    fn failure_carries_a_short_reason() {
+        let p = workflow_done_payload("x", "X", &Err("n8n reported an error (500)".into()), Duration::from_secs(40));
+        assert_eq!(p["title"], "X hit a problem");
+        assert_eq!(p["body"], "n8n reported an error (500)");
     }
 }
