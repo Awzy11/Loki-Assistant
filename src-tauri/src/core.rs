@@ -594,10 +594,11 @@ impl Core {
 
     /// The engine this conversation uses: its own choice, else the server default, else `auto`.
     /// The engine a routine asks for with its `engine:` line, or `None` to leave the conversation alone. Only `claude` and `claude:<model>`
-    /// exist so far. It never overrides a choice the person made (a picked engine, or the `/exit` local-only switch), and it needs Claude to
-    /// be set up.
-    pub fn routine_engine(&self, hint: &str, current: &str, force_local: bool) -> Option<String> {
-        pick_routine_engine(hint, current, force_local, self.claude_cfg.enabled, &self.claude_cfg.inference_models, self.claude_cfg.inference_model.as_deref())
+    /// exist so far. It beats the global default engine (a default is not a choice about this routine) but never a choice the person made
+    /// for this conversation (a picked engine, or the `/exit` local-only switch), and it needs Claude to be set up.
+    pub fn routine_engine(&self, hint: &str, session_id: &str, force_local: bool) -> Option<String> {
+        let own = self.sessions.lock().unwrap().get(session_id).and_then(|s| s.engine.clone());
+        pick_routine_engine(hint, own.as_deref(), force_local, self.claude_cfg.enabled, &self.claude_cfg.inference_models, self.claude_cfg.inference_model.as_deref())
     }
 
     pub fn effective_engine(&self, session_id: &str) -> String {
@@ -933,9 +934,9 @@ impl Core {
         let mut local_reason: Option<String> = None;
         // Why Claude was skipped, if it was — becomes `SentTurn::note`.
         let mut claude_skipped: Option<String> = None;
-        // A routine can ask for a stronger model (its `engine:` line); that is applied once, and only while the conversation is on Auto.
+        // A routine can ask for a stronger model (its `engine:` line); that is applied unless the person picked an engine for this conversation.
         if let Some(hint) = expansion.as_ref().and_then(|e| e.engine.as_deref()) {
-            if let Some(wanted) = self.routine_engine(hint, &self.effective_engine(session_id), force_local) {
+            if let Some(wanted) = self.routine_engine(hint, session_id, force_local) {
                 if self.set_engine(Some(session_id), &wanted).await.is_ok() {
                     emit(sink, ChatEvent::Status { message: "This routine needs a stronger model than your local one, so this conversation uses Claude.".into() });
                 }
@@ -2515,8 +2516,8 @@ fn now_unix_nanos() -> u128 {
 }
 
 /// See `Core::routine_engine`.
-fn pick_routine_engine(hint: &str, current: &str, force_local: bool, claude_enabled: bool, models: &[String], default_model: Option<&str>) -> Option<String> {
-    if force_local || !claude_enabled || current != engines::AUTO {
+fn pick_routine_engine(hint: &str, own_engine: Option<&str>, force_local: bool, claude_enabled: bool, models: &[String], default_model: Option<&str>) -> Option<String> {
+    if force_local || !claude_enabled || own_engine.is_some() {
         return None;
     }
     let asked = hint.trim().strip_prefix("claude")?;
@@ -2538,19 +2539,19 @@ mod routine_engine_tests {
     }
 
     #[test]
-    fn a_routine_can_ask_for_claude_while_the_conversation_is_on_auto() {
-        assert_eq!(pick_routine_engine("claude", "auto", false, true, &models(), None).as_deref(), Some("claude:sonnet"));
-        assert_eq!(pick_routine_engine("claude", "auto", false, true, &models(), Some("opus")).as_deref(), Some("claude:opus"));
-        assert_eq!(pick_routine_engine("claude:haiku", "auto", false, true, &models(), None).as_deref(), Some("claude:haiku"));
+    fn a_routine_can_ask_for_claude_when_the_conversation_has_no_engine_of_its_own() {
+        assert_eq!(pick_routine_engine("claude", None, false, true, &models(), None).as_deref(), Some("claude:sonnet"));
+        assert_eq!(pick_routine_engine("claude", None, false, true, &models(), Some("opus")).as_deref(), Some("claude:opus"));
+        assert_eq!(pick_routine_engine("claude:haiku", None, false, true, &models(), None).as_deref(), Some("claude:haiku"));
     }
 
     #[test]
     fn it_never_overrides_the_person_or_a_missing_setup() {
-        assert_eq!(pick_routine_engine("claude", "claude:opus", false, true, &models(), None), None, "an engine the person picked stays");
-        assert_eq!(pick_routine_engine("claude", "configured", false, true, &models(), None), None);
-        assert_eq!(pick_routine_engine("claude", "auto", true, true, &models(), None), None, "/exit keeps the conversation local");
-        assert_eq!(pick_routine_engine("claude", "auto", false, false, &models(), None), None, "Claude is not set up");
-        assert_eq!(pick_routine_engine("claude:gpt", "auto", false, true, &models(), None), None);
-        assert_eq!(pick_routine_engine("gemini", "auto", false, true, &models(), None), None);
+        assert_eq!(pick_routine_engine("claude", Some("claude:opus"), false, true, &models(), None), None, "an engine picked for this conversation stays");
+        assert_eq!(pick_routine_engine("claude", Some("configured"), false, true, &models(), None), None);
+        assert_eq!(pick_routine_engine("claude", None, true, true, &models(), None), None, "/exit keeps the conversation local");
+        assert_eq!(pick_routine_engine("claude", None, false, false, &models(), None), None, "Claude is not set up");
+        assert_eq!(pick_routine_engine("claude:gpt", None, false, true, &models(), None), None);
+        assert_eq!(pick_routine_engine("gemini", None, false, true, &models(), None), None);
     }
 }
