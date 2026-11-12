@@ -14,6 +14,27 @@ use std::path::PathBuf;
 pub struct Expanded {
     pub name: String,
     pub text: String,
+    /// The routine's `engine:` front-matter line, if it has one (for example `claude`): a routine whose output a small local model gets
+    /// wrong, such as writing a language it only half knows, can ask for a stronger model. See `Core::routine_engine`.
+    pub engine: Option<String>,
+}
+
+/// The value of a `key:` line in a file's front matter (the block between the opening and closing `---`).
+fn front_value(body: &str, key: &str) -> Option<String> {
+    let mut lines = body.lines();
+    if lines.next()?.trim() != "---" {
+        return None;
+    }
+    for l in lines {
+        if l.trim() == "---" {
+            return None;
+        }
+        if let Some(v) = l.strip_prefix(key).and_then(|r| r.strip_prefix(':')) {
+            let v = v.trim().trim_matches('"');
+            return (!v.is_empty()).then(|| v.to_string());
+        }
+    }
+    None
 }
 
 /// Where commands live, in the order they are searched: a name in Loki's own folder wins over the same name in Claude Code's.
@@ -49,7 +70,9 @@ pub fn expand_in(message: &str, dir: &std::path::Path) -> Option<Expanded> {
     if !valid || RESERVED.contains(&name) {
         return None;
     }
-    let body = crate::profile::get().render(&std::fs::read_to_string(dir.join(format!("{name}.md"))).ok()?);
+    let raw = std::fs::read_to_string(dir.join(format!("{name}.md"))).ok()?;
+    let engine = front_value(&raw, "engine");
+    let body = crate::profile::get().render(&raw);
     let text = if body.contains("$ARGUMENTS") {
         body.replace("$ARGUMENTS", args)
     } else if args.is_empty() {
@@ -57,7 +80,7 @@ pub fn expand_in(message: &str, dir: &std::path::Path) -> Option<Expanded> {
     } else {
         format!("{body}\n\nARGUMENTS: {args}")
     };
-    Some(Expanded { name: name.to_string(), text })
+    Some(Expanded { name: name.to_string(), text, engine })
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -144,6 +167,17 @@ mod tests {
             std::fs::write(d.join(format!("{n}.md")), c).unwrap();
         }
         d
+    }
+
+    #[test]
+    fn reads_the_engine_from_front_matter() {
+        let d = dir_with(&[("ru", "---\ndescription: x\nengine: claude\n---\nDo it."), ("plain", "---\ndescription: y\n---\nDo it."), ("none", "Do it."), ("quoted", "---\nengine: \"claude:opus\"\n---\nDo it.")]);
+        assert_eq!(expand_in("/quoted", &d).unwrap().engine.as_deref(), Some("claude:opus"));
+        assert_eq!(expand_in("/ru", &d).unwrap().engine.as_deref(), Some("claude"));
+        assert_eq!(expand_in("/plain", &d).unwrap().engine, None);
+        assert_eq!(expand_in("/none", &d).unwrap().engine, None);
+        assert_eq!(front_value("---\nengine: \"claude:opus\"\n---\nbody", "engine").as_deref(), Some("claude:opus"));
+        assert_eq!(front_value("engine: claude\nno front matter", "engine"), None);
     }
 
     #[test]

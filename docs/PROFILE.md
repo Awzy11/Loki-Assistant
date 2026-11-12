@@ -59,6 +59,8 @@ The files can contain placeholders. When a routine runs, Loki fills them in from
 
 Anything else in double braces is left exactly as written (for example `{{result:tool.field}}`, which pipes one tool's result into another).
 
+**Asking for a stronger model:** a routine whose output a small local model gets wrong (writing a language it only half knows, for example) can say so in its front matter: `engine: claude` (or `engine: claude:opus`). When you start it in a conversation that is still on Auto, Loki switches that conversation to Claude and tells you. It never overrides an engine you picked yourself or the `/exit` local-only switch, and it does nothing if Claude is not set up.
+
 **See what Loki will send:** `loki-routine bod` prints the prompt with your profile applied (add `--blank` to see it against the blank-vault
 defaults). Placeholders it does not recognize are listed at the end, which catches typos.
 
