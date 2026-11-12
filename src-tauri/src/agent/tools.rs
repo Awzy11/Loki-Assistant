@@ -903,7 +903,8 @@ mod remote_tests {
         assert!(e.contains("exit status 3") && e.contains("boom"), "{e}");
         let slow = fake_ssh("sleep 30");
         let started = std::time::Instant::now();
-        assert!(run_remote(&slow, &hosts, "h", "x", "", 1).await.unwrap_err().contains("timed out"));
+        let e = run_remote(&slow, &hosts, "h", "x", "", 1).await.unwrap_err();
+        assert!(e.contains("timed out"), "{e}");
         assert!(started.elapsed() < std::time::Duration::from_secs(10));
     }
 }
