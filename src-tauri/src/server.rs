@@ -358,6 +358,7 @@ pub fn router(core: Arc<Core>, static_dir: Option<PathBuf>) -> Router {
         .route("/api/v1/mcp/servers", get(v1_mcp_servers))
         .route("/api/v1/mcp/servers/{name}/tools", get(v1_mcp_tools))
         .route("/api/v1/mcp/action", post(v1_mcp_action))
+        .route("/api/v1/usage", get(|Query(q): Query<HashMap<String, String>>| async move { Json(crate::usage_ledger::summary(q.get("days").and_then(|d| d.parse().ok()).unwrap_or(14))) }))
         .route("/api/v1/version", get(|| async { Json(crate::version::info()) }))
         .route("/api/v1/version/check", post(v1_version_check))
         .route("/api/v1/engines", get(engines_list).post(engines_set))

@@ -937,6 +937,11 @@ impl Tool for ReadSkill {
 
 static LOCAL_PROVIDER: std::sync::OnceLock<Arc<dyn crate::providers::LlmProvider>> = std::sync::OnceLock::new();
 
+/// The local model, once one is configured (what delegated jobs, condensing and prep packets run on).
+pub fn local_provider() -> Option<Arc<dyn crate::providers::LlmProvider>> {
+    LOCAL_PROVIDER.get().cloned()
+}
+
 /// Called once at startup with the first non-cloud model.
 pub fn set_local_provider(p: Arc<dyn crate::providers::LlmProvider>) {
     let _ = LOCAL_PROVIDER.set(p);
@@ -979,6 +984,123 @@ pub fn scrub_summary(s: &str, cap: usize) -> String {
     }
 }
 
+/// True for an address that is not on the public internet: loopback, private ranges, link-local, carrier-grade NAT (Tailscale lives
+/// there), unspecified and multicast.
+fn is_internal_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v) => {
+            let o = v.octets();
+            v.is_loopback() || v.is_private() || v.is_link_local() || v.is_unspecified() || v.is_multicast() || v.is_broadcast() || (o[0] == 100 && (64..128).contains(&o[1])) || o[0] == 0
+        }
+        std::net::IpAddr::V6(v) => {
+            let seg = v.segments();
+            v.is_loopback() || v.is_unspecified() || v.is_multicast() || (seg[0] & 0xfe00) == 0xfc00 || (seg[0] & 0xffc0) == 0xfe80 || v.to_ipv4_mapped().is_some_and(|m| is_internal_ip(std::net::IpAddr::V4(m)))
+        }
+    }
+}
+
+/// Only plain public web pages: http(s), no credentials in the address, no internal host names, and no address that resolves inside this
+/// network. (A page that redirects somewhere internal is stopped by the redirect policy of the client that fetches it.)
+async fn check_public_url(raw: &str) -> Result<reqwest::Url, String> {
+    let url = reqwest::Url::parse(raw.trim()).map_err(|_| "that is not a valid web address".to_string())?;
+    if !matches!(url.scheme(), "http" | "https") || !url.username().is_empty() || url.password().is_some() {
+        return Err("only plain http or https addresses are allowed".into());
+    }
+    let host = url.host_str().ok_or("the address has no host")?.to_lowercase();
+    // Names that only mean something inside a network. Anything else is settled by where the name resolves, below.
+    let internal_name = host == "localhost" || [".localhost", ".local", ".internal", ".lan", ".localdomain"].iter().any(|suffix| host.ends_with(suffix));
+    if internal_name || !host.contains('.') && host.parse::<std::net::IpAddr>().is_err() && !host.starts_with('[') {
+        return Err("that address is on this network, not the public web".into());
+    }
+    let port = url.port_or_known_default().unwrap_or(80);
+    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.trim_matches(['[', ']']), port)).await.map_err(|_| "the host could not be found".to_string())?.collect();
+    if addrs.is_empty() || addrs.iter().any(|a| is_internal_ip(a.ip())) {
+        return Err("that address is on this network, not the public web".into());
+    }
+    Ok(url)
+}
+
+/// The scout's own web fetch: a public page as plain text. Not offered to the main model (which has the MCP fetch tool); it exists so a
+/// delegated job can read a page and report only what was asked for.
+pub struct WebFetch;
+
+#[async_trait]
+impl Tool for WebFetch {
+    fn def(&self) -> ToolDef {
+        ToolDef::function(
+            "web_fetch",
+            "Fetch a public web page (http or https) and return its text with markup removed, up to 30000 characters. Read-only; addresses on this network are refused.",
+            json!({"type":"object","properties":{"url":{"type":"string","description":"The page address"}},"required":["url"]}),
+        )
+    }
+    fn tier(&self) -> Tier {
+        Tier::Ambient
+    }
+    async fn execute(&self, args: &Value, _ctx: &ToolCtx<'_>) -> anyhow::Result<String> {
+        let raw = args.get("url").and_then(|v| v.as_str()).unwrap_or_default();
+        let mut url = check_public_url(raw).await.map_err(|e| anyhow::anyhow!(e))?;
+        // Redirects are followed by hand, up to three, and every hop goes through the same public-address check as the first.
+        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).user_agent("Mozilla/5.0 (compatible; Loki)").redirect(reqwest::redirect::Policy::none()).build()?;
+        let mut hops = 0;
+        let res = loop {
+            let res = client.get(url.clone()).send().await.map_err(|e| anyhow::anyhow!("couldn't fetch the page: {e}"))?;
+            if res.status().is_redirection() {
+                hops += 1;
+                let next = res.headers().get("location").and_then(|v| v.to_str().ok()).and_then(|l| url.join(l).ok());
+                let Some(next) = next.filter(|_| hops <= 3) else { anyhow::bail!("the page redirected somewhere that can't be followed") };
+                url = check_public_url(next.as_str()).await.map_err(|e| anyhow::anyhow!("a redirect was refused: {e}"))?;
+                continue;
+            }
+            break res;
+        };
+        if !res.status().is_success() {
+            anyhow::bail!("the page answered {}", res.status());
+        }
+        let is_html = res.headers().get("content-type").and_then(|v| v.to_str().ok()).map(|v| v.contains("html")).unwrap_or(true);
+        let bytes = res.bytes().await.map_err(|e| anyhow::anyhow!("couldn't read the page: {e}"))?;
+        let body = String::from_utf8_lossy(&bytes[..bytes.len().min(2_000_000)]).into_owned();
+        let text = if is_html { crate::mail::strip_html(&body) } else { body };
+        Ok(text.chars().take(30_000).collect())
+    }
+}
+
+/// Marks the briefing packet inside a routine's first message.
+pub const PACKET_MARK: &str = "[Briefing packet";
+
+const PREP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(240);
+const PREP_ROUNDS: usize = 12;
+
+/// Before a daily or weekly routine runs on a cloud model, the local model does the reading the routine starts with and writes it up as one
+/// packet, so the cloud model begins from a few hundred words instead of reading a dozen notes itself. Read-only, no email, and discarded
+/// if anything private was touched. `None` (and the routine simply runs as before) on any failure or timeout.
+pub async fn prep_packet(ctx: &ToolCtx<'_>, routine_text: &str) -> Option<String> {
+    let local = local_provider()?;
+    let mut reg = ToolRegistry::default_registry();
+    reg.retain_read_only();
+    reg.register(Box::new(WebFetch));
+    let task = format!(
+        "You are preparing a briefing packet for another assistant, a paid model that is about to run the routine below for the user. Do only \
+         the read-only gathering the routine begins with: find and read the notes, plans, events and backlog items it will need. Do not write \
+         anything, do not ask the user anything, and do not do the routine's analysis or reach conclusions. Reply with the packet: one line per \
+         source, `path — the facts the routine will use` (dates, task text with its status, numbers), compact and in the order the routine \
+         needs them. Under 900 words. The other assistant opens any file itself when it must edit or quote it.\n\nTHE ROUTINE:\n{routine_text}"
+    );
+    let sid = format!("prep-{}", ctx.session_id);
+    let policy = crate::context_window::ContextPolicy { budget_tokens: crate::context_stats::get().budget_tokens(), summarized_upto: 0 };
+    let run = crate::agent::run_turn(local.as_ref(), &reg, ctx, &sid, vec![Message::user(task)], &ctx.context.prompt_block, None, None, PREP_ROUNDS, policy);
+    let (history, reply) = tokio::time::timeout(PREP_TIMEOUT, Box::pin(run)).await.ok()?.ok()?;
+    let private = history.iter().any(|m| m.role == "tool" && m.tool_name.as_deref().is_some_and(|n| reg.tier_of(n) == Tier::LocalOnly));
+    let reply = reply.trim();
+    if private || reply.is_empty() {
+        return None;
+    }
+    let chars_read: usize = history.iter().filter(|m| m.role == "tool").map(|m| m.content.chars().count()).sum();
+    crate::usage_ledger::record_offload("prep", chars_read, reply.chars().count());
+    Some(format!(
+        "{PACKET_MARK} prepared by Loki's local model from the notes this routine reads. It saves you the reading; it can miss or misread things, so open a file yourself before you edit it or rely on its exact wording.]\n{reply}"
+    ))
+}
+
 pub struct DelegateLocal;
 
 #[async_trait]
@@ -986,7 +1108,7 @@ impl Tool for DelegateLocal {
     fn def(&self) -> ToolDef {
         ToolDef::function(
             "delegate_local",
-            "Hand a self-contained, read-only job to the user's local model (the local model), which can read the vault and, when authorized, the user's email, then returns a short written result. Use it for bulk reading, sorting, counting and first-pass summaries so you spend fewer tokens, and for anything involving the user's email or finances. If the job touches email, the result is a short summary with addresses and long numbers removed, so ask for what you need (counts, themes, what needs action), not raw text. The local model cannot write anything.",
+            "Hand a self-contained, read-only job to the user's local model (free to run, unlike you), which can read the vault, fetch public web pages and, when authorized, read the user's email, then returns a short written result. Use it for bulk reading, searching, sorting, counting, fetching and first-pass summaries so you spend fewer tokens, and for anything involving the user's email or finances. Ask for the form you want: key facts plus the file paths or addresses they came from, so you can open exact text yourself when you must quote or edit it. If the job touches email, the result is a short summary with addresses and long numbers removed, so ask for what you need (counts, themes, what needs action), not raw text. The local model cannot write anything.",
             json!({"type":"object","properties":{
                 "task":{"type":"string","description":"Complete instructions for the local model, including what form the result should take."}},"required":["task"]}),
         )
@@ -1007,6 +1129,7 @@ impl Tool for DelegateLocal {
             reg.register(Box::new(MailCount));
         }
         reg.retain_read_only();
+        reg.register(Box::new(WebFetch));
         let wrapped = format!(
             "{task}\n\n[You are doing a delegated, read-only job for another assistant. Use the tools you need, then reply with a short written result (under 200 words). Summarize in your own words: do not quote messages, and leave out email addresses, phone numbers, account numbers and amounts of money.]"
         );
@@ -1015,6 +1138,8 @@ impl Tool for DelegateLocal {
         let (history, reply) = crate::agent::run_turn(local.as_ref(), &reg, ctx, &sid, vec![Message::user(wrapped)], &ctx.context.prompt_block, None, None, crate::agent_limits::ordinary(), policy).await?;
         let private = history.iter().any(|m| m.role == "tool" && m.tool_name.as_deref().is_some_and(|n| reg.tier_of(n) == Tier::LocalOnly));
         let rounds = history.iter().filter(|m| m.role == "tool").count();
+        let chars_read: usize = history.iter().filter(|m| m.role == "tool").map(|m| m.content.chars().count()).sum();
+        crate::usage_ledger::record_offload("scout", chars_read, reply.chars().count());
         if let Some(dir) = crate::paths::data_dir().map(|d| d.join("loki")) {
             use std::io::Write;
             let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
@@ -1028,7 +1153,25 @@ impl Tool for DelegateLocal {
 
 #[cfg(test)]
 mod delegate_tests {
-    use super::scrub_summary;
+    use super::{check_public_url, is_internal_ip, scrub_summary};
+
+    #[test]
+    fn internal_addresses_are_recognised() {
+        for a in ["127.0.0.1", "10.1.2.3", "192.168.7.5", "172.16.0.9", "169.254.1.1", "100.100.100.100", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:192.168.0.1"] {
+            assert!(is_internal_ip(a.parse().unwrap()), "{a}");
+        }
+        for a in ["8.8.8.8", "93.184.216.34", "2606:4700:4700::1111", "100.63.0.1", "100.128.0.1"] {
+            assert!(!is_internal_ip(a.parse().unwrap()), "{a}");
+        }
+    }
+
+    #[tokio::test]
+    async fn only_public_web_addresses_pass() {
+        for bad in ["ftp://example.com/x", "http://localhost:8420", "http://intranet/x", "http://printer.lan/", "http://192.168.7.5/", "http://user:pw@example.com/", "http://[::1]/", "file:///etc/passwd", "nonsense"] {
+            assert!(check_public_url(bad).await.is_err(), "{bad}");
+        }
+        assert!(check_public_url("http://8.8.8.8/").await.is_ok());
+    }
 
     #[test]
     fn scrubs_addresses_and_long_numbers() {

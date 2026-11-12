@@ -110,6 +110,10 @@ pub struct ClaudeConfig {
     /// Model `Auto` uses in `inference` mode; unset = the CLI's default.
     #[serde(default)]
     pub inference_model: Option<String>,
+    /// How much conversation (characters, tool results included) a Claude turn carries verbatim before older turns are folded into a
+    /// summary. Every Claude call re-reads this, so a lower number is cheaper; the default is 120000 (about 37k tokens).
+    #[serde(default)]
+    pub history_budget_chars: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,6 +142,7 @@ impl Default for ClaudeConfig {
             mode: ClaudeMode::Inference,
             inference_models: default_inference_models(),
             inference_model: None,
+            history_budget_chars: None,
         }
     }
 }
@@ -152,6 +157,38 @@ fn default_claude_binary() -> String {
 
 fn default_claude_timeout_secs() -> u64 {
     120
+}
+
+/// How much of the work Loki keeps away from a paid cloud model by letting the free local one do it first (`[hierarchy]` in config.toml).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HierarchyConfig {
+    /// Long read-only tool results (web pages, weather, search hits) are condensed by the local model before a cloud model sees them.
+    #[serde(default = "default_true")]
+    pub condense: bool,
+    /// Results shorter than this many characters are passed through untouched.
+    #[serde(default = "default_condense_min_chars")]
+    pub condense_min_chars: usize,
+    /// Which tools' results may be condensed. A trailing `*` matches a prefix (`mcp__fetch__*`). Anything you will edit from the
+    /// result (file reads, note contents) should not be listed: exact text must reach the model.
+    #[serde(default = "default_condense_tools")]
+    pub condense_tools: Vec<String>,
+    /// Before a daily or weekly routine runs on a cloud model, the local model gathers its sources into one briefing packet.
+    #[serde(default = "default_true")]
+    pub prep_packets: bool,
+}
+
+fn default_condense_min_chars() -> usize {
+    6000
+}
+
+fn default_condense_tools() -> Vec<String> {
+    ["mcp__fetch__*", "mcp__openweather__*", "mcp__youtube-transcript__*", "mcp__gutenberg__*", "mcp__osint__*", "simple_search"].iter().map(|s| s.to_string()).collect()
+}
+
+impl Default for HierarchyConfig {
+    fn default() -> Self {
+        Self { condense: true, condense_min_chars: default_condense_min_chars(), condense_tools: default_condense_tools(), prep_packets: true }
+    }
 }
 
 /// How much of the standing instructions rides in every system prompt (`[context]` in
@@ -371,6 +408,8 @@ pub struct Config {
     pub skills: SkillsConfig,
     #[serde(default)]
     pub agy: AgyConfig,
+    #[serde(default)]
+    pub hierarchy: HierarchyConfig,
     #[serde(default)]
     pub agent: AgentConfig,
     #[serde(default)]

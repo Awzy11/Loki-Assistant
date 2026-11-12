@@ -44,7 +44,18 @@ use tokio::process::Command;
 pub const TOOL_SENTINEL: &str = "<<TOOL_CALLS>>";
 const MAX_TOOL_RESULT_CHARS: usize = 20_000;
 /// Transcript size (chars) above which Loki falls back to windowing + summary for this provider.
-pub const FULL_HISTORY_BUDGET_CHARS: usize = 200_000;
+pub const FULL_HISTORY_BUDGET_CHARS: usize = 120_000;
+
+static HISTORY_BUDGET_CHARS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(FULL_HISTORY_BUDGET_CHARS);
+
+/// Sets the budget from `[claude] history_budget_chars` at startup.
+pub fn set_history_budget_chars(n: usize) {
+    HISTORY_BUDGET_CHARS.store(n.max(20_000), std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn history_budget_chars() -> usize {
+    HISTORY_BUDGET_CHARS.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// What a resumed CLI session already contains, as far as Loki knows.
 #[derive(Clone)]
@@ -173,6 +184,9 @@ impl ClaudeCliProvider {
         }
         if let Some(u) = parsed.usage.take() {
             *self.last_usage.lock().unwrap() = Some(u);
+        }
+        if let Some((tokens, cost)) = parsed.ledger.take() {
+            crate::usage_ledger::record_call("claude-inference", &tokens, cost);
         }
         parsed.finish(status.success(), &stderr_text)
     }
@@ -357,7 +371,7 @@ impl LlmProvider for ClaudeCliProvider {
     }
 
     fn full_history_budget(&self) -> Option<usize> {
-        Some(FULL_HISTORY_BUDGET_CHARS)
+        Some(history_budget_chars())
     }
 
     fn take_usage(&self) -> Option<Value> {
@@ -576,6 +590,8 @@ struct CliOutput {
     error_text: Option<String>,
     streamed: String,
     usage: Option<Value>,
+    /// The result event's token counts and cost, for the usage ledger.
+    ledger: Option<(Value, f64)>,
 }
 
 impl CliOutput {
@@ -601,6 +617,7 @@ impl CliOutput {
             "result" => {
                 let text = v["result"].as_str().unwrap_or_default().to_string();
                 eprintln!("[loki-debug] claude usage (inference): {}", usage_summary(&v));
+                self.ledger = Some((v["usage"].clone(), v["total_cost_usd"].as_f64().unwrap_or(0.0)));
                 if v["is_error"].as_bool().unwrap_or(false) {
                     self.error_text = Some(if text.is_empty() { v.to_string() } else { text });
                 } else {

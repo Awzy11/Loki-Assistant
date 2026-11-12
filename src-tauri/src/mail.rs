@@ -195,7 +195,7 @@ fn part_text(part: &Value, want: &str) -> Option<String> {
 
 /// HTML to readable text: `<script>`, `<style>`, `<head>` and comments are dropped whole (that is where JSON-LD and CSS
 /// live), block tags become line breaks, and entities are decoded.
-fn strip_html(h: &str) -> String {
+pub(crate) fn strip_html(h: &str) -> String {
     let lower = h.to_lowercase();
     let mut src = String::with_capacity(h.len());
     let mut i = 0;

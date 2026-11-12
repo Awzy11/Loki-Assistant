@@ -99,11 +99,22 @@ async fn build_context_window(
 ) -> Vec<Message> {
     // Providers with a big context + prefix cache take the whole transcript while it fits, so
     // the prompt stays an append-only prefix (see `providers::claude_cli`).
-    if let Some(budget) = llm.full_history_budget() {
+    let full_history_budget = llm.full_history_budget();
+    if let Some(budget) = full_history_budget {
         if history.iter().map(|m| m.content.len()).sum::<usize>() <= budget {
             return history.to_vec();
         }
     }
+    // Over a cached provider's budget: the window is capped at that budget too (not the local model's much larger one), and it only moves
+    // when compaction folds older turns into the summary, so the prompt prefix stays stable between compactions.
+    let capped;
+    let policy = match full_history_budget {
+        Some(chars) => {
+            capped = ContextPolicy { budget_tokens: policy.budget_tokens.min(crate::context_window::est_tokens(&"x".repeat(chars))), ..*policy };
+            &capped
+        }
+        None => policy,
+    };
     let start = window_start(history, policy, MIN_WINDOW_MESSAGES);
     let dropped = start > 1;
     if !dropped && summary.is_none() {
@@ -114,7 +125,9 @@ async fn build_context_window(
     if let Some(summary) = summary {
         context.push(Message::system(format!("Summary of this conversation so far (older turns):\n{summary}")));
     }
-    if dropped {
+    // Per-message recall goes at the front of the prompt, where changing it every turn would void the provider's cache; such providers
+    // get the summary and the recall_conversation tool instead.
+    if dropped && full_history_budget.is_none() {
         // Older exchanges are filed (tagged, numbered) in the knowledge store: pull the ones that
         // matter for what was just said. Exchanges still inside the window are skipped.
         let latest_user = history[start..].iter().rev().find(|m| m.role == "user").map(|m| m.content.clone()).unwrap_or_default();
@@ -145,9 +158,17 @@ async fn build_context_window(
             Err(e) => eprintln!("[loki-debug] context retrieval failed, continuing on the recent window only: {e}"),
         }
     }
+    if dropped && full_history_budget.is_some() {
+        context.push(Message::system("Older turns of this conversation are only in the summary above. Use recall_conversation if you need the exact wording of something from them.".to_string()));
+    }
     context.extend(history[start..].iter().cloned());
     context
 }
+
+/// Shown to cloud models so the free local model does the reading. Kept short: it is re-sent with every request.
+const DELEGATION_HINT: &str = "Cost note: you run on a paid cloud model. delegate_local runs a free local model for reading-heavy work: \
+summarizing or scanning notes and pages, fetching and digesting web pages, searching, counting, sorting. Hand that off and ask for file paths \
+or addresses in its answer; do the judging, deciding and every write yourself. Read a file directly only when you will edit it or must quote it exactly.";
 
 /// Fewest recent messages ever sent verbatim, however small the token budget.
 pub(crate) const MIN_WINDOW_MESSAGES: usize = 4;
@@ -214,6 +235,21 @@ pub async fn run_turn(
         history[0].content = format!("{base}{}", crate::lessons::prompt_block());
     }
 
+    // A routine's first message on a cloud model gets a briefing packet from the local model (see `tools::prep_packet`). It goes into the
+    // stored message itself, so later turns and the provider's cached prefix see exactly what this one did.
+    if llm.is_cloud() && crate::hierarchy::settings().prep_packets {
+        let wants_packet = history.last().is_some_and(|m| m.role == "user" && !m.content.contains(tools::PACKET_MARK) && m.display.as_deref().is_some_and(|d| d.starts_with('/')));
+        if wants_packet {
+            emit(sink, ChatEvent::Status { message: "Preparing the briefing with the local model first…".into() });
+            let text = history.last().map(|m| m.content.clone()).unwrap_or_default();
+            if let Some(packet) = tools::prep_packet(ctx, &text).await {
+                if let Some(last) = history.last_mut() {
+                    last.content = format!("{}\n\n{packet}", last.content);
+                }
+            }
+        }
+    }
+
     let mut context_for_model = build_context_window(llm, ctx, session_id, &history, summary, &policy).await;
     // Small local models weight the end of the context most, so approved lessons are also
     // restated right before the user's latest message (not stored in the transcript).
@@ -222,6 +258,10 @@ pub async fn run_turn(
     let mut suffix = format!("[Current date/time: {}]", crate::conversation_log::now_local_weekday());
     if !reminder.is_empty() {
         suffix = format!("{suffix}\n\n[{}]", reminder.trim());
+    }
+    // A paid cloud model is told where the free local one fits, once per request, on the tail (so the cached prefix is untouched).
+    if llm.is_cloud() && tools.iter().any(|t| t.function.name == "delegate_local") {
+        suffix = format!("{suffix}\n\n[{DELEGATION_HINT}]");
     }
     if let Some(pos) = context_for_model.iter().rposition(|m| m.role == "user") {
         // Appended to the user turn (this request's copy only): chat templates often ignore
@@ -335,6 +375,7 @@ pub async fn run_turn(
             return Ok((history, final_text));
         }
 
+        let call_reason = reply.content.clone();
         history.push(reply.clone());
         context_for_model.push(reply);
 
@@ -440,6 +481,17 @@ pub async fn run_turn(
             if !result.starts_with("error:") {
                 piped.push((name.clone(), result.clone()));
             }
+            // A paid cloud model gets a short version of long web pages, weather and search output from the free local model. The full
+            // text stays in `piped`, so `{{result:tool}}` can still carry it into a write without it passing through the cloud model.
+            let result = if llm.is_cloud() && !result.starts_with("error:") && crate::hierarchy::should_condense(&crate::hierarchy::settings(), &name, result.chars().count()) {
+                let goal = history.iter().rev().find(|m| m.role == "user").map(|m| m.display.clone().unwrap_or_else(|| m.content.clone())).unwrap_or_default();
+                match crate::hierarchy::condense(&name, &effective_args, &goal, &call_reason, &result).await {
+                    Some(short) => short,
+                    None => result,
+                }
+            } else {
+                result
+            };
             let result = if name.starts_with("mcp__") { crate::mcp_hub::clip_result(result) } else { result };
             emit(sink, ChatEvent::ToolResult { id: call_id, is_error: result.starts_with("error:"), content: result.clone() });
             let result_msg = Message::tool_result(model_tool_name.clone(), result);

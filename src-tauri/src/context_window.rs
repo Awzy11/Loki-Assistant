@@ -69,6 +69,22 @@ pub fn window_start(history: &[Message], policy: &ContextPolicy, min_msgs: usize
 /// unsummarized history still fits comfortably. `turn_tokens[i]` is the token estimate of turn i.
 /// Triggers at 90% of the budget (or `max_turns` unsummarized turns) and keeps the newest turns
 /// worth ≤35% of the budget (at least `min_keep`) verbatim.
+/// Tokens each conversation turn really costs when sent verbatim: the turn's own message plus the tool calls and results that follow
+/// it before the next turn. `compaction_target` over these weights keeps a tool-heavy transcript in check, which counting only the
+/// text of the turns would not.
+pub fn turn_weights(history: &[Message]) -> Vec<usize> {
+    let mut weights: Vec<usize> = Vec::new();
+    for m in history.iter().skip(1) {
+        let t = msg_tokens(m);
+        if router::is_turn(m) {
+            weights.push(t);
+        } else if let Some(last) = weights.last_mut() {
+            *last += t;
+        }
+    }
+    weights
+}
+
 pub fn compaction_target(turn_tokens: &[usize], summarized_upto: usize, budget: usize, max_turns: usize, min_keep: usize) -> Option<usize> {
     let total = turn_tokens.len();
     if total <= summarized_upto {
@@ -93,6 +109,18 @@ pub fn compaction_target(turn_tokens: &[usize], summarized_upto: usize, budget: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_results_count_toward_their_turn() {
+        let mut tool = Message::assistant("");
+        tool.role = "tool".into();
+        tool.content = "r".repeat(3200);
+        let h = vec![Message::system("sys"), Message::user("hi"), Message::assistant("calling"), tool, Message::assistant("done"), Message::user("next")];
+        let w = turn_weights(&h);
+        assert_eq!(w.len(), 4);
+        assert!(w[1] > 900, "the assistant turn carries the tool result that followed it: {:?}", w);
+        assert!(w[0] < 10 && w[3] < 10);
+    }
 
     fn conv(n: usize, len: usize) -> Vec<Message> {
         let mut h = vec![Message::system("sys")];

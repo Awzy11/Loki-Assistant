@@ -294,6 +294,10 @@ const ROUTINE_EXIT_COMMAND: &str = "/exit";
 
 impl Core {
     pub fn new(config: Config) -> Self {
+        crate::hierarchy::set(config.hierarchy.clone());
+        if let Some(n) = config.claude.history_budget_chars {
+            crate::providers::claude_cli::set_history_budget_chars(n);
+        }
         // Build the provider handles first — they only need shared borrows of
         // config.llm/config.embedding — before partially moving the rest of `config` by value.
         let llm = crate::providers::factory::build(&config.llm);
@@ -1475,6 +1479,9 @@ impl Core {
         let Some(provider) = std::iter::once(&self.llm).chain(self.fallbacks.iter()).find(|p| !p.is_cloud()).cloned() else {
             return;
         };
+        // `effective_engine` takes the sessions lock itself, so it is asked before this function holds it.
+        let engine = self.effective_engine(session_id);
+        let claude_session = engine.starts_with("claude") || (engine == engines::AUTO && self.claude_cfg.enabled && self.claude_cfg.mode == crate::config::ClaudeMode::Inference);
         let (existing, turns, target, private) = {
             let mut sessions = self.sessions.lock().unwrap();
             let Some(state) = sessions.get_mut(session_id) else { return };
@@ -1486,8 +1493,16 @@ impl Core {
             if !settings.autocompact {
                 return;
             }
-            let turn_tokens: Vec<usize> = state.history.iter().filter(|m| router::is_turn(m)).map(crate::context_window::msg_tokens).collect();
-            let Some(target) = crate::context_window::compaction_target(&turn_tokens, state.summarized_upto, settings.budget_tokens(), settings.max_turns, 4) else {
+            // Claude re-reads the whole carried history on every call, so its sessions are kept to the (smaller) Claude budget, and
+            // tool results count toward it. Local models keep the budget derived from their own context window.
+            let claude_session = claude_session;
+            let (turn_tokens, budget): (Vec<usize>, usize) = if claude_session {
+                let b = crate::context_window::est_tokens(&"x".repeat(crate::providers::claude_cli::history_budget_chars()));
+                (crate::context_window::turn_weights(&state.history), b.min(settings.budget_tokens()))
+            } else {
+                (state.history.iter().filter(|m| router::is_turn(m)).map(crate::context_window::msg_tokens).collect(), settings.budget_tokens())
+            };
+            let Some(target) = crate::context_window::compaction_target(&turn_tokens, state.summarized_upto, budget, settings.max_turns, 4) else {
                 return;
             };
             let _ = total;
